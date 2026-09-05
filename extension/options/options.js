@@ -144,28 +144,25 @@ async function setupAppVersionAndUpdates() {
     let htmlUrl = "https://github.com/assasakiy/Smart-Subtitle/releases";
     let downloadUrl = "";
 
-    // 1. Coba fetch latest GitHub Release
-    const relRes = await fetch("https://api.github.com/repos/assasakiy/Smart-Subtitle/releases/latest", {
-      headers: { Accept: "application/vnd.github.v3+json" },
+    // 1. Cek versi terbaru dari raw manifest di GitHub (tanpa batas rate-limit API 60 req/jam)
+    const rawRes = await fetch("https://raw.githubusercontent.com/assasakiy/Smart-Subtitle/main/manifest.json?t=" + Date.now(), {
+      cache: "no-store"
     });
-
-    if (relRes.ok) {
-      const release = await relRes.json();
-      latestTag = String(release.tag_name || "").replace(/^v/i, "").trim();
-      htmlUrl = release.html_url || htmlUrl;
-      downloadUrl = release.zipball_url || "";
-    } else if (relRes.status === 404) {
-      // 2. Fallback: Cek git tags jika belum dibuat GitHub Release formal
-      const tagRes = await fetch("https://api.github.com/repos/assasakiy/Smart-Subtitle/tags", {
+    if (rawRes.ok) {
+      const rawManifest = await rawRes.json();
+      latestTag = String(rawManifest.version || "").replace(/^v/i, "").trim();
+      htmlUrl = `https://github.com/assasakiy/Smart-Subtitle/releases/tag/v${latestTag}`;
+      downloadUrl = `https://github.com/assasakiy/Smart-Subtitle/archive/refs/tags/v${latestTag}.zip`;
+    } else {
+      // Fallback: GitHub API jika raw file tidak dapat diakses
+      const relRes = await fetch("https://api.github.com/repos/assasakiy/Smart-Subtitle/releases/latest", {
         headers: { Accept: "application/vnd.github.v3+json" },
       });
-      if (tagRes.ok) {
-        const tags = await tagRes.json();
-        if (Array.isArray(tags) && tags.length > 0) {
-          latestTag = String(tags[0].name || "").replace(/^v/i, "").trim();
-          htmlUrl = `https://github.com/assasakiy/Smart-Subtitle/releases/tag/v${latestTag}`;
-          downloadUrl = tags[0].zipball_url || "";
-        }
+      if (relRes.ok) {
+        const release = await relRes.json();
+        latestTag = String(release.tag_name || "").replace(/^v/i, "").trim();
+        htmlUrl = release.html_url || htmlUrl;
+        downloadUrl = release.zipball_url || "";
       }
     }
 
