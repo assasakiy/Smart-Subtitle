@@ -26,7 +26,7 @@ echo   ]
 echo }
 ) > "%HOST_JSON%"
 
-echo Mendaftarkan ke Windows Registry (Chrome & Edge)...
+echo Mendaftarkan ke Windows Registry (Chrome dan Edge)...
 REG ADD "HKCU\Software\Google\Chrome\NativeMessagingHosts\com.aisubtitle.updater" /ve /t REG_SZ /d "%HOST_JSON%" /f >nul
 REG ADD "HKCU\Software\Microsoft\Edge\NativeMessagingHosts\com.aisubtitle.updater" /ve /t REG_SZ /d "%HOST_JSON%" /f >nul
 
