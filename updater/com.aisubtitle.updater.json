@@ -1,0 +1,9 @@
+{
+  "name": "com.aisubtitle.updater",
+  "description": "Smart Subtitle Native Updater Host",
+  "path": "host.bat",
+  "type": "stdio",
+  "allowed_origins": [
+    "chrome-extension://*/*"
+  ]
+}

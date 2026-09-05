@@ -1,0 +1,359 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #09111f;
+      --panel: #111d2f;
+      --line: #263650;
+      --text: #f4f7fb;
+      --muted: #91a0b8;
+      --accent: #F86800;
+      --accent-dim: rgba(248, 104, 0, 0.15);
+      --danger: #ff7685;
+    }
+    * { box-sizing: border-box; min-width: 0; }
+    html, body {
+      width: 360px;
+      max-width: 360px;
+      height: fit-content;
+      min-height: auto;
+      margin: 0;
+      background: radial-gradient(circle at 15% 0, #173650 0, transparent 38%), var(--bg);
+      color: var(--text);
+      font: 13px system-ui, -apple-system, sans-serif;
+    }
+    main {
+      padding: 16px;
+      position: relative;
+    }
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 14px;
+    }
+    .header-left {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .version-tag {
+      font-size: 10px;
+      font-weight: 700;
+      color: var(--accent);
+      background: var(--accent-dim);
+      padding: 2px 7px;
+      border-radius: 6px;
+      letter-spacing: 0.3px;
+    }
+    .logo {
+      flex: 0 0 38px;
+      width: 38px;
+      height: 38px;
+      border-radius: 10px;
+    }
+    h1 {
+      margin: 0;
+      font-size: 16px;
+      font-weight: 700;
+    }
+    .sub {
+      margin: 2px 0 0;
+      color: var(--muted);
+      font-size: 11px;
+    }
+    .panel {
+      display: grid;
+      gap: 12px;
+      width: 100%;
+      padding: 14px;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: rgba(17, 29, 47, 0.94);
+      box-shadow: 0 16px 40px rgba(0,0,0,0.25);
+      position: relative;
+    }
+    .field {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+      width: 100%;
+      position: relative;
+    }
+    .field-label {
+      color: #cfd9e8;
+      font-weight: 600;
+      font-size: 12px;
+      user-select: none;
+    }
+    .select-wrap {
+      position: relative;
+      width: 100%;
+      box-sizing: border-box;
+      z-index: 10;
+    }
+    .select-wrap.is-open {
+      z-index: 1000;
+    }
+    /* Custom Select Styling */
+    .c-select-trigger {
+      width: 100%;
+      min-height: 38px;
+      padding: 8px 32px 8px 12px;
+      border: 1px solid var(--line);
+      border-radius: 9px;
+      background: #0b1627;
+      color: var(--text);
+      font: 12px system-ui, -apple-system, sans-serif;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      position: relative;
+      user-select: none;
+      box-sizing: border-box;
+      line-height: 1.35;
+      word-break: break-word;
+      white-space: normal;
+      transition: border-color 0.15s, box-shadow 0.15s;
+    }
+    .c-select-trigger:hover {
+      border-color: #344c70;
+    }
+    .c-select-trigger:focus-visible, .c-select-trigger.active {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 2px rgba(248, 104, 0, 0.25);
+    }
+    .c-select-trigger.disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+      pointer-events: none;
+    }
+    .c-select-arrow {
+      position: absolute;
+      top: 50%;
+      right: 12px;
+      width: 6px;
+      height: 6px;
+      border-right: 2px solid var(--muted);
+      border-bottom: 2px solid var(--muted);
+      transform: translateY(-65%) rotate(45deg);
+      pointer-events: none;
+      transition: transform 0.2s;
+    }
+    .c-select-trigger.active .c-select-arrow {
+      transform: translateY(-25%) rotate(-135deg);
+    }
+    .c-select-menu {
+      position: absolute;
+      top: calc(100% + 4px);
+      left: 0;
+      width: 100%;
+      max-height: 180px;
+      overflow-y: auto;
+      background: #0b1627;
+      border: 1px solid var(--line);
+      border-radius: 9px;
+      box-shadow: 0 12px 30px rgba(0, 0, 0, 0.7);
+      z-index: 1000;
+      display: none;
+      box-sizing: border-box;
+    }
+    .c-select-menu.open {
+      display: block;
+    }
+    .c-select-option {
+      padding: 9px 12px;
+      color: var(--text);
+      font: 12px system-ui, -apple-system, sans-serif;
+      line-height: 1.35;
+      cursor: pointer;
+      word-break: break-word;
+      white-space: normal;
+      border-bottom: 1px solid rgba(34, 55, 85, 0.4);
+      transition: background 0.12s, color 0.12s;
+    }
+    .c-select-option:last-child {
+      border-bottom: 0;
+    }
+    .c-select-option:hover {
+      background: rgba(248, 104, 0, 0.15);
+      color: var(--accent);
+    }
+    .c-select-option.selected {
+      background: rgba(248, 104, 0, 0.22);
+      color: var(--accent);
+      font-weight: 700;
+    }
+    .c-select-option.disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+      pointer-events: none;
+    }
+    .hidden { display: none !important; }
+    
+    button {
+      min-height: 38px;
+      border: 0;
+      border-radius: 9px;
+      padding: 8px 10px;
+      background: var(--accent);
+      color: #07151b;
+      font: 700 12px system-ui, sans-serif;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      line-height: 1.25;
+      white-space: normal;
+      word-break: break-word;
+      transition: transform 0.12s, opacity 0.12s;
+    }
+    button:hover:not(:disabled) {
+      transform: translateY(-1px);
+    }
+    button:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+    button.loading::before {
+      display: inline-block;
+      width: 12px;
+      height: 12px;
+      margin-right: 7px;
+      border: 2px solid rgba(7,21,27,0.28);
+      border-top-color: #07151b;
+      border-radius: 50%;
+      content: "";
+      vertical-align: -2px;
+      animation: spin 0.7s linear infinite;
+    }
+    button.secondary {
+      background: #20304a;
+      color: var(--text);
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .actions {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      margin-top: 4px;
+    }
+    .status {
+      min-height: 32px;
+      padding: 8px 10px;
+      overflow-wrap: anywhere;
+      border-radius: 9px;
+      background: #0b1627;
+      color: var(--muted);
+      font-size: 11px;
+      line-height: 1.4;
+    }
+    .status.error { color: var(--danger); }
+    footer {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-top: 10px;
+      font-size: 11px;
+    }
+    footer button {
+      min-height: auto;
+      padding: 5px 8px;
+      background: transparent;
+      color: var(--muted);
+      font-weight: 500;
+    }
+    footer button:hover {
+      color: var(--accent);
+    }
+    .dev-credit {
+      text-align: center;
+      margin-top: 14px;
+      font-size: 11px;
+      color: var(--muted);
+      letter-spacing: 0.2px;
+    }
+    .dev-credit strong {
+      color: var(--text);
+      font-weight: 600;
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <div class="header-left">
+        <img src="icons/icon48.png" alt="Logo" class="logo">
+        <div>
+          <h1>Subtitle Sync AI</h1>
+          <p class="sub">Rapi, sinkron, tersimpan lokal</p>
+        </div>
+      </div>
+      <span id="popupVersion" class="version-tag">v0.1.0</span>
+    </header>
+    <section class="panel">
+      <div class="field">
+        <span class="field-label">Sumber Subtitle</span>
+        <div class="select-wrap">
+          <select id="source">
+            <option value="original">Original Subtitle (Smart Segmentation)</option>
+            <option value="captions">Subtitle YouTube (AI Enhancement)</option>
+            <option value="audio" disabled>Audio (Nonaktif Sementara)</option>
+          </select>
+        </div>
+      </div>
+
+      <div id="audioModeField" class="field hidden">
+        <span class="field-label">Mode Audio</span>
+        <div class="select-wrap">
+          <select id="audioMode">
+            <option value="live">Live transcription</option>
+            <option value="full" disabled>Full transcription — Coming Soon</option>
+          </select>
+        </div>
+      </div>
+
+      <div id="asrModelField" class="field hidden">
+        <span class="field-label">Model ASR</span>
+        <div class="select-wrap">
+          <select id="transcriptionModel"></select>
+        </div>
+      </div>
+
+      <div id="textModelField" class="field">
+        <span class="field-label">Model Text AI</span>
+        <div class="select-wrap">
+          <select id="textModel"></select>
+        </div>
+      </div>
+
+      <div class="field">
+        <span id="languageLabel" class="field-label">Bahasa Subtitle</span>
+        <div class="select-wrap">
+          <select id="language"></select>
+        </div>
+      </div>
+
+      <div class="actions">
+        <button id="generate">Generate subtitle</button>
+        <button id="activate" class="secondary" disabled>Aktifkan subtitle</button>
+      </div>
+      <output id="status" class="status" aria-live="polite">Memuat pengaturan…</output>
+    </section>
+    <footer>
+      <span style="color:var(--muted);font-size:10px;">Atur widget ⚙ di video</span>
+      <button id="settings">Dashboard Pengaturan ↗</button>
+    </footer>
+    <div class="dev-credit">
+      Developed by <strong>Assasakiy Media</strong>
+    </div>
+  </main>
+  <script src="popup.js"></script>
+</body>
+</html>
