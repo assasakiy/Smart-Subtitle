@@ -24,7 +24,7 @@
       "128": "icons/icon128.png"
     }
   },
-  "options_page": "options.html",
+  "options_page": "options/options.html",
   "content_scripts": [
     {
       "matches": ["https://www.youtube.com/*"],

@@ -11,15 +11,15 @@ const DEFAULTS = {
 };
 
 // Elements
-const navBtns = document.querySelectorAll(".nav-btn");
+let navBtns = [];
 const tabPanes = document.querySelectorAll(".tab-pane");
 
 const formGeneral = document.querySelector("#formGeneral");
 const generalStatus = document.querySelector("#generalStatus");
 const saveGeneralBtn = document.querySelector("#saveGeneralBtn");
 const modelList = document.querySelector("#modelList");
-const loadModelsBtn = document.querySelector("#loadModels");
-const loadModelsStatus = document.querySelector("#loadModelsStatus");
+let loadModelsBtn = null;
+let loadModelsStatus = null;
 
 const fontSizeInput = document.querySelector("#fontSizeInput");
 const fontSizeVal = document.querySelector("#fontSizeVal");
@@ -48,14 +48,18 @@ let initialAppearance = {};
 // Init
 init();
 
-function init() {
+async function init() {
+  await loadLayout();
   setupNavigation();
   setupAppVersionAndUpdates();
   restoreGeneral();
   restoreAppearance();
   loadCacheList();
 
-  loadModelsBtn.addEventListener("click", loadModels);
+  loadModelsBtn = document.querySelector("#loadModels");
+  loadModelsStatus = document.querySelector("#loadModelsStatus");
+  if (loadModelsBtn) loadModelsBtn.addEventListener("click", loadModels);
+  
   formGeneral.addEventListener("submit", saveGeneral);
   formGeneral.addEventListener("input", checkGeneralChanged);
   formGeneral.addEventListener("change", checkGeneralChanged);
@@ -68,6 +72,45 @@ function init() {
 
   deleteSelectedCacheBtn.addEventListener("click", handleDeleteSelectedCache);
   selectAllCheckbox.addEventListener("change", handleSelectAllChange);
+}
+
+async function loadLayout() {
+  try {
+    const res = await fetch("layout.html");
+    const html = await res.text();
+    const container = document.querySelector("#layout-container");
+    if (container) {
+      container.innerHTML = html;
+      navBtns = document.querySelectorAll(".nav-btn");
+      setupSidebarDrawer();
+    }
+  } catch (err) {
+    console.error("Gagal memuat layout sidebar:", err);
+  }
+}
+
+function setupSidebarDrawer() {
+  const aside = document.querySelector("aside");
+  const hamburgerBtn = document.querySelector("#hamburgerBtn");
+  const overlay = document.querySelector("#overlay");
+
+  if (!aside || !hamburgerBtn || !overlay) return;
+
+  const toggleSidebar = (force) => {
+    const isOpen = typeof force === "boolean" ? force : !aside.classList.contains("open");
+    aside.classList.toggle("open", isOpen);
+    overlay.classList.toggle("active", isOpen);
+    hamburgerBtn.textContent = isOpen ? "✕" : "☰";
+  };
+
+  hamburgerBtn.addEventListener("click", () => toggleSidebar());
+  overlay.addEventListener("click", () => toggleSidebar(false));
+
+  navBtns.forEach((btn) => {
+    btn.addEventListener("click", () => {
+      if (window.innerWidth <= 1024) toggleSidebar(false);
+    });
+  });
 }
 
 function setupNavigation() {

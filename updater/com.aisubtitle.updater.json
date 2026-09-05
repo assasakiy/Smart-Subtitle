@@ -1,7 +1,7 @@
 {
   "name": "com.aisubtitle.updater",
   "description": "Smart Subtitle Native Updater Host",
-  "path": "host.bat",
+  "path": "C:\\Users\\ASUS M5406N\\Downloads\\tes\\updater\\host.bat",
   "type": "stdio",
   "allowed_origins": [
     "chrome-extension://*/*"

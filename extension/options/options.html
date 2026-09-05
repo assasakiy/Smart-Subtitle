@@ -29,6 +29,10 @@
       font: 14px system-ui, -apple-system, sans-serif;
       display: flex;
     }
+    /* Sidebar layout container */
+    #layout-container {
+      display: contents;
+    }
     aside {
       width: 250px;
       height: 100vh;
@@ -40,6 +44,7 @@
       position: sticky;
       top: 0;
       z-index: 100;
+      transition: transform 0.3s ease;
     }
     .brand {
       padding: 24px 20px;
@@ -180,6 +185,33 @@
     .github-link:hover {
       color: var(--text);
     }
+    /* Hamburger toggle */
+    .hamburger-btn {
+      display: none;
+      position: fixed;
+      top: 12px;
+      left: 12px;
+      z-index: 200;
+      background: var(--sidebar);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      color: var(--text);
+      font-size: 20px;
+      padding: 6px 10px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .hamburger-btn:hover {
+      background: var(--card);
+    }
+    .overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.5);
+      z-index: 50;
+    }
+    /* Main content */
     main {
       flex: 1;
       height: 100vh;
@@ -545,60 +577,78 @@
       box-decoration-break: clone;
       -webkit-box-decoration-break: clone;
     }
+
+    /* Responsive: tablet & mobile */
+    @media (max-width: 1024px) {
+      aside {
+        position: fixed;
+        top: 0;
+        left: 0;
+        transform: translateX(-100%);
+        width: 280px;
+        height: 100vh;
+        z-index: 150;
+        border-right: 1px solid var(--line);
+        box-shadow: 4px 0 30px rgba(0,0,0,0.6);
+        transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+      }
+      aside.open {
+        transform: translateX(0);
+      }
+      .hamburger-btn {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .overlay.active {
+        display: block;
+      }
+      main {
+        padding: 24px 20px;
+        padding-top: 68px;
+      }
+      .main-container {
+        max-width: 100%;
+      }
+    }
+    @media (max-width: 600px) {
+      main {
+        padding: 16px 12px;
+        padding-top: 60px;
+      }
+      .card {
+        padding: 16px;
+      }
+      .cache-item {
+        flex-wrap: wrap;
+        gap: 10px;
+      }
+      .cache-info h4 {
+        font-size: 13px;
+      }
+      .cache-meta {
+        font-size: 11px;
+        gap: 8px 12px;
+      }
+      .section-title {
+        font-size: 18px;
+      }
+      .models-bar {
+        flex-wrap: wrap;
+      }
+      .cache-badges {
+        margin-left: 0;
+      }
+    }
   </style>
 </head>
 <body>
-  <aside>
-    <div class="brand">
-      <img src="icons/icon48.png" alt="Logo" class="brand-logo">
-      <div class="brand-text">
-        <h2>Subtitle Sync AI</h2>
-        <p>Pengaturan & Data</p>
-      </div>
-    </div>
-    <nav>
-      <button class="nav-btn active" data-tab="general">
-        <svg viewBox="0 0 24 24"><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/><circle cx="12" cy="12" r="5"/></svg>
-        Koneksi AI
-      </button>
-      <button class="nav-btn" data-tab="appearance">
-        <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M7 8h10M7 12h10M7 16h6"/></svg>
-        Tampilan Subtitle
-      </button>
-      <button class="nav-btn" data-tab="cache">
-        <svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
-        Cache Subtitle
-      </button>
-    </nav>
-    <div class="sidebar-footer">
-      <div class="footer-row">
-        <span>Versi Ekstensi</span>
-        <span id="optionsVersion" class="footer-badge">v0.1.0</span>
-      </div>
-      <div id="updateNoticeBox" class="update-box" style="display: none;">
-        <span class="update-tag">Rilis Baru Tersedia!</span>
-        <div style="display:flex;gap:6px;flex-direction:column;">
-          <a id="changeLogBtn" class="change-btn" href="https://github.com/assasakiy/Smart-Subtitle/releases/latest" target="_blank" rel="noopener">
-            Change (Perubahan) ↗
-          </a>
-          <button id="triggerNativeUpdateBtn" style="padding:5px 8px;font-size:11px;background:#20334d;color:#fff;border-radius:6px;width:100%;justify-content:center;">
-            Update Otomatis
-          </button>
-        </div>
-        <span id="nativeUpdateStatus" style="font-size:10px;color:var(--muted);"></span>
-      </div>
-      <div class="footer-dev">
-        <span>Developed by</span>
-        <strong>Assasakiy Media</strong>
-      </div>
-      <a href="https://github.com/assasakiy/Smart-Subtitle" class="github-link" target="_blank" rel="noopener">
-        <svg viewBox="0 0 24 24" width="13" height="13" fill="currentColor">
-          <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/>
-        </svg>
-        GitHub Smart-Subtitle
-      </a>
-    </div>
-  </aside>
+  <!-- Hamburger toggle (visible on tablet/mobile) -->
+  <button class="hamburger-btn" id="hamburgerBtn" aria-label="Toggle sidebar">☰</button>
+  <div class="overlay" id="overlay"></div>
+
+  <!-- Sidebar loaded from layout.html -->
+  <div id="layout-container"></div>
 
   <main>
     <div class="main-container">
