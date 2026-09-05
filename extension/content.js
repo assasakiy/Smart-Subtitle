@@ -234,7 +234,7 @@
       if (!rawCues.length) throw new Error("[parse] Timedtext tidak memiliki segmen yang dapat digunakan.");
 
       const normalized = normalizeCaptionCues(rawCues);
-      rawSegments = normalized.map((cue, id) => ({ ...cue, id }));
+      rawSegments = segmentCuesLocally(normalized); // Fallback cerdas: smart segmentation lokal (bukan mentah potongan kecil)
       const fingerprint = await fingerprintSegments(rawSegments);
       assertCurrentVideo(capturedVideoId);
 
@@ -257,8 +257,8 @@
       if (job.pendingIds.length) {
         phase = "generating";
         source = "captions";
-        progress = job.completedCount ? `Melanjutkan (${job.completedCount}/${job.batches.length} batch siap)…` : "Memproses batch pertama di posisi pemutaran…";
-        void runCaptionBatches(job, video.currentTime);
+        progress = job.completedCount ? `Melanjutkan (${job.completedCount}/${job.batches.length} batch siap)…` : "Memproses batch pertama dari awal video…";
+        void runCaptionBatches(job); // Mulai dari awal (batch 0) berurutan agar balik ke menit awal subtitle aman
       } else {
         phase = "generated";
         source = "captions";
@@ -305,45 +305,82 @@
     segments = collectCompletedSegments(job.batches);
   }
 
-  async function runCaptionBatches(job, currentTime) {
-    const queue = orderBatchIds(job.batches, currentTime).filter((id) => job.batches[id]?.status !== "complete");
+  async function runCaptionBatches(job) {
+    // Proses selalu berurutan dari awal video (batch 0, 1, 2, ...)
+    const queue = job.batches.map((_, i) => i).filter((id) => job.batches[id]?.status !== "complete");
     for (const batchId of queue) {
       if (!isCurrentJob(job)) return;
       const batch = job.batches[batchId];
       if (!batch || batch.status === "complete") continue;
 
-      try {
-        const response = await chrome.runtime.sendMessage({
-          type: "ENHANCE_CAPTIONS",
-          jobId: job.id,
-          batchId,
-          segments: batch.cues,
-          textModel: job.textModel,
-          targetLanguage: job.targetLanguage,
-        });
-
+      let success = false;
+      // Berikan toleransi retry hingga 3x per batch sebelum berhenti
+      for (let attempt = 1; attempt <= 3; attempt++) {
         if (!isCurrentJob(job)) return;
-        if (!response?.ok || !Array.isArray(response.segments)) throw new Error(response?.error || `Batch ${batchId + 1} gagal diproses.`);
+        try {
+          progress = `Memproses batch ${batchId + 1}/${job.batches.length}${attempt > 1 ? ` (coba lagi ${attempt}/3)` : ""}…`;
+          const response = await chrome.runtime.sendMessage({
+            type: "ENHANCE_CAPTIONS",
+            jobId: job.id,
+            batchId,
+            segments: batch.cues,
+            textModel: job.textModel,
+            targetLanguage: job.targetLanguage,
+          });
 
-        batch.segments = response.segments;
-        batch.status = "complete";
-        job.completedCount += 1;
-        applyJobState(job);
+          if (!isCurrentJob(job)) return;
+          if (!response?.ok || !Array.isArray(response.segments)) {
+            throw new Error(response?.error || `Batch ${batchId + 1} gagal diproses.`);
+          }
 
-        await persistCaptionJob(job);
-        if (!isCurrentJob(job)) return;
+          batch.segments = response.segments;
+          batch.status = "complete";
+          job.completedCount += 1;
+          applyJobState(job);
 
-        progress = `Batch ${job.completedCount}/${job.batches.length} selesai. Subtitle siap ditonton.`;
-        if (job.completedCount === job.batches.length) {
-          phase = "generated";
-          progress = `Selesai 100% (${job.completedCount}/${job.batches.length} batch AI). Tersimpan lokal.`;
+          await persistCaptionJob(job);
+          if (!isCurrentJob(job)) return;
+
+          // Catat log sukses
+          chrome.runtime.sendMessage({
+            type: "LOG_ERROR",
+            log: {
+              level: "info",
+              source: "ai_enhancement",
+              message: `Batch ${batchId + 1}/${job.batches.length} berhasil di-generate (${response.segments.length} segmen).`,
+              details: { videoId: currentVideoId, batchId: batchId + 1, totalBatches: job.batches.length, model: job.textModel }
+            }
+          }).catch(() => {});
+
+          progress = `Batch ${job.completedCount}/${job.batches.length} selesai. Subtitle siap ditonton.`;
+          success = true;
+          break;
+        } catch (reason) {
+          const errMsg = reason instanceof Error ? reason.message : String(reason);
+          if (attempt === 3) {
+            // Catat log gagal setelah 3 percobaan
+            chrome.runtime.sendMessage({
+              type: "LOG_ERROR",
+              log: {
+                level: "error",
+                source: "ai_enhancement",
+                message: `Batch ${batchId + 1}/${job.batches.length} gagal setelah 3 percobaan: ${errMsg}`,
+                details: { videoId: currentVideoId, batchId: batchId + 1, model: job.textModel, error: errMsg }
+              }
+            }).catch(() => {});
+
+            phase = "error";
+            error = errMsg;
+            progress = `Gagal di batch ${batchId + 1} (${errMsg}). Batch yang sudah selesai tetap dapat ditonton.`;
+            return;
+          }
+          await new Promise((resolve) => setTimeout(resolve, 3000));
         }
-      } catch (reason) {
-        if (!isCurrentJob(job)) return;
-        phase = "error";
-        error = reason instanceof Error ? reason.message : String(reason);
-        progress = `Gagal di batch ${batchId + 1}: ${error}`;
-        return;
+      }
+
+      if (job.completedCount === job.batches.length) {
+        phase = "generated";
+        progress = `Selesai 100% (${job.completedCount}/${job.batches.length} batch AI). Tersimpan lokal.`;
       }
     }
   }

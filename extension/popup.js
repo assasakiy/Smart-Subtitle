@@ -188,21 +188,24 @@ async function generateSubtitles() {
   // mode AI Captions
   renderBusy("Menyiapkan batch…");
   status.classList.remove("error");
-  status.textContent = "Mengambil caption YouTube dan membagi batch cerdas…";
+  status.textContent = "Mempersiapkan smart segmentation & batch AI…";
   progressTimer = setInterval(refreshProgress, 750);
   try {
-    state = await sendToTab({
+    const res = await sendToTab({
       type: "GENERATE",
       sourceMode: "captions",
       transcriptionModel: transcriptionModel.value,
       textModel: textModel.value,
       targetLanguage: language.value,
-    }) || state;
+    });
+    if (res) state = res;
   } finally {
-    clearInterval(progressTimer);
-    progressTimer = undefined;
     busy = false;
     render();
+    // Biarkan progress polling tetap jalan di background jika masih generating
+    if (state.phase === "generating" && !progressTimer) {
+      progressTimer = setInterval(refreshProgress, 750);
+    }
   }
 }
 
@@ -211,6 +214,11 @@ async function refreshProgress() {
   if (!response) return;
   state = response;
   render();
+  // Hentikan timer jika selesai atau error
+  if (state.phase !== "generating" && progressTimer) {
+    clearInterval(progressTimer);
+    progressTimer = undefined;
+  }
 }
 
 async function toggleSubtitle() {
@@ -265,7 +273,7 @@ function render() {
   } else {
     generate.disabled = generating;
     generate.textContent = generating && isCaptions
-      ? "Memproses…"
+      ? `Memproses (${state.completedBatches || 0}/${state.totalBatches || "?"})…`
       : mode === "original"
         ? "Terapkan Subtitle"
         : "Generate Subtitle";
@@ -282,7 +290,8 @@ function render() {
   syncCustomSelect(language);
   syncCustomSelect(transcriptionModel);
 
-  activate.disabled = !hasUsableSubtitles;
+  // Tombol aktifkan langsung terbuka begitu batch 1 atau fallback lokal siap!
+  activate.disabled = busy || !hasUsableSubtitles;
   activate.textContent = state.active ? "Nonaktifkan subtitle" : "Aktifkan subtitle";
   status.classList.toggle("error", state.phase === "error");
 

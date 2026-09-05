@@ -526,7 +526,9 @@ async function loadLogsList() {
   logListEl.innerHTML = "";
   logs.forEach((log) => {
     const item = document.createElement("div");
+    const isInfo = log.level === "info";
     item.className = "cache-item";
+    if (isInfo) item.style.borderColor = "rgba(80, 200, 120, 0.4)";
     const timeStr = new Date(log.timestamp).toLocaleString("id-ID", {
       dateStyle: "medium",
       timeStyle: "medium",
@@ -535,10 +537,10 @@ async function loadLogsList() {
     item.innerHTML = `
       <div class="cache-info">
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
-          <span class="badge" style="background:var(--danger-dim);color:var(--danger);">${escapeHtml(log.source.toUpperCase())}</span>
+          <span class="badge" style="background:${isInfo ? "rgba(80, 200, 120, 0.2);color:#50c878;" : "var(--danger-dim);color:var(--danger);"}">${escapeHtml(log.source.toUpperCase())}</span>
           <span style="font-size:12px;color:var(--muted);">${timeStr}</span>
         </div>
-        <h4 style="color:#ff8e9b;margin-bottom:4px;font-family:monospace;font-size:13px;">${escapeHtml(log.message)}</h4>
+        <h4 style="color:${isInfo ? "#a8ffc8" : "#ff8e9b"};margin-bottom:4px;font-family:monospace;font-size:13px;">${escapeHtml(log.message)}</h4>
         ${
           log.explanation
             ? `<div style="background:rgba(255,255,255,0.05);padding:8px 12px;border-radius:8px;margin:6px 0 8px;font-size:12px;color:#cfd9e8;">
