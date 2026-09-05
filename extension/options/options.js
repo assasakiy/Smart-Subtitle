@@ -90,20 +90,21 @@ async function loadLayout() {
 }
 
 function setupSidebarDrawer() {
-  const aside = document.querySelector("aside");
-  const hamburgerBtn = document.querySelector("#hamburgerBtn");
+  const aside = document.querySelector("#appSidebar");
+  const dockBtn = document.querySelector("#sidebarDockBtn");
   const overlay = document.querySelector("#overlay");
 
-  if (!aside || !hamburgerBtn || !overlay) return;
+  if (!aside || !dockBtn || !overlay) return;
 
   const toggleSidebar = (force) => {
     const isOpen = typeof force === "boolean" ? force : !aside.classList.contains("open");
     aside.classList.toggle("open", isOpen);
     overlay.classList.toggle("active", isOpen);
-    hamburgerBtn.textContent = isOpen ? "✕" : "☰";
+    dockBtn.textContent = isOpen ? "✕" : "⚙";
+    dockBtn.title = isOpen ? "Tutup Sidebar" : "Buka Sidebar";
   };
 
-  hamburgerBtn.addEventListener("click", () => toggleSidebar());
+  dockBtn.addEventListener("click", () => toggleSidebar());
   overlay.addEventListener("click", () => toggleSidebar(false));
 
   navBtns.forEach((btn) => {
@@ -111,6 +112,9 @@ function setupSidebarDrawer() {
       if (window.innerWidth <= 1024) toggleSidebar(false);
     });
   });
+
+  // Set default button icon on load
+  dockBtn.textContent = "⚙";
 }
 
 function setupNavigation() {

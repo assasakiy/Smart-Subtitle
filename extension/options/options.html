@@ -34,7 +34,7 @@
       display: contents;
     }
     aside {
-      width: 250px;
+      width: 260px;
       height: 100vh;
       background: var(--sidebar);
       border-right: 1px solid var(--line);
@@ -44,10 +44,10 @@
       position: sticky;
       top: 0;
       z-index: 100;
-      transition: transform 0.3s ease;
+      transition: transform 0.28s cubic-bezier(0.16, 1, 0.3, 1);
     }
     .brand {
-      padding: 24px 20px;
+      padding: 20px 18px;
       display: flex;
       align-items: center;
       gap: 12px;
@@ -56,18 +56,59 @@
     .brand-logo {
       width: 36px;
       height: 36px;
-      border-radius: 10px;
+      border-radius: 9px;
+      object-fit: contain;
+      flex-shrink: 0;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+    }
+    .brand-text {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      min-width: 0;
     }
     .brand-text h2 {
       margin: 0;
-      font-size: 16px;
+      font-size: 15px;
       font-weight: 700;
       color: var(--text);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
     .brand-text p {
-      margin: 2px 0 0;
+      margin: 0;
       font-size: 11px;
       color: var(--muted);
+      white-space: nowrap;
+    }
+    /* Samping dock-button persis seperti widget video */
+    .sidebar-dock-btn {
+      position: absolute;
+      left: 100%;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 28px;
+      height: 52px;
+      background: var(--sidebar);
+      border: 1px solid var(--line);
+      border-left: 0;
+      border-radius: 0 10px 10px 0;
+      color: var(--accent);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      font-size: 15px;
+      font-weight: 700;
+      box-shadow: 3px 0 14px rgba(0,0,0,0.4);
+      transition: background 0.15s, color 0.15s;
+      user-select: none;
+      z-index: 105;
+    }
+    .sidebar-dock-btn:hover {
+      background: #182842;
+      color: #fff;
     }
     nav {
       padding: 16px 10px;
@@ -585,27 +626,25 @@
         top: 0;
         left: 0;
         transform: translateX(-100%);
-        width: 280px;
+        width: 270px;
         height: 100vh;
         z-index: 150;
         border-right: 1px solid var(--line);
-        box-shadow: 4px 0 30px rgba(0,0,0,0.6);
-        transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+        box-shadow: 6px 0 32px rgba(0,0,0,0.65);
+        transition: transform 0.28s cubic-bezier(0.16, 1, 0.3, 1);
       }
       aside.open {
         transform: translateX(0);
       }
-      .hamburger-btn {
+      .sidebar-dock-btn {
         display: flex;
-        align-items: center;
-        justify-content: center;
       }
       .overlay.active {
         display: block;
       }
       main {
         padding: 24px 20px;
-        padding-top: 68px;
+        padding-left: 48px;
       }
       .main-container {
         max-width: 100%;
@@ -613,8 +652,8 @@
     }
     @media (max-width: 600px) {
       main {
-        padding: 16px 12px;
-        padding-top: 60px;
+        padding: 16px 14px;
+        padding-left: 42px;
       }
       .card {
         padding: 16px;
@@ -643,8 +682,7 @@
   </style>
 </head>
 <body>
-  <!-- Hamburger toggle (visible on tablet/mobile) -->
-  <button class="hamburger-btn" id="hamburgerBtn" aria-label="Toggle sidebar">☰</button>
+  <!-- Overlay saat sidebar terbuka di mobile/tablet -->
   <div class="overlay" id="overlay"></div>
 
   <!-- Sidebar loaded from layout.html -->
