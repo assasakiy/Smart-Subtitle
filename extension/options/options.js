@@ -72,6 +72,10 @@ async function init() {
 
   deleteSelectedCacheBtn.addEventListener("click", handleDeleteSelectedCache);
   selectAllCheckbox.addEventListener("change", handleSelectAllChange);
+
+  const clearLogsBtn = document.querySelector("#clearLogsBtn");
+  if (clearLogsBtn) clearLogsBtn.addEventListener("click", handleClearAllLogs);
+  loadLogsList();
 }
 
 async function loadLayout() {
@@ -124,6 +128,7 @@ function setupNavigation() {
       navBtns.forEach((b) => b.classList.toggle("active", b === btn));
       tabPanes.forEach((p) => p.classList.toggle("active", p.id === `tab-${target}`));
       if (target === "cache") loadCacheList();
+      if (target === "logs") loadLogsList();
     });
   });
 }
@@ -501,6 +506,73 @@ async function handleClearAllCache() {
   if (!confirm("Hapus SELURUH cache subtitle dari browser?")) return;
   await chrome.runtime.sendMessage({ type: "CLEAR_ALL_CACHE" });
   loadCacheList();
+}
+
+async function loadLogsList() {
+  const logListEl = document.querySelector("#logList");
+  const logCountBadge = document.querySelector("#logCountBadge");
+  const clearLogsBtn = document.querySelector("#clearLogsBtn");
+  if (!logListEl) return;
+
+  logListEl.innerHTML = `<div class="cache-empty">Memuat catatan error...</div>`;
+  const res = await chrome.runtime.sendMessage({ type: "GET_LOGS" });
+  const logs = res?.logs || [];
+
+  if (logCountBadge) logCountBadge.textContent = `${logs.length} Log`;
+  if (clearLogsBtn) clearLogsBtn.disabled = logs.length === 0;
+
+  if (!logs.length) {
+    logListEl.innerHTML = `<div class="cache-empty">Belum ada catatan error. Sistem berjalan normal.</div>`;
+    return;
+  }
+
+  logListEl.innerHTML = "";
+  logs.forEach((log) => {
+    const item = document.createElement("div");
+    item.className = "cache-item";
+    const timeStr = new Date(log.timestamp).toLocaleString("id-ID", {
+      dateStyle: "medium",
+      timeStyle: "medium",
+    });
+
+    item.innerHTML = `
+      <div class="cache-info">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+          <span class="badge" style="background:var(--danger-dim);color:var(--danger);">${escapeHtml(log.source.toUpperCase())}</span>
+          <span style="font-size:12px;color:var(--muted);">${timeStr}</span>
+        </div>
+        <h4 style="color:#ff8e9b;margin-bottom:4px;font-family:monospace;font-size:13px;">${escapeHtml(log.message)}</h4>
+        ${
+          log.explanation
+            ? `<div style="background:rgba(255,255,255,0.05);padding:8px 12px;border-radius:8px;margin:6px 0 8px;font-size:12px;color:#cfd9e8;">
+                <strong>Penyebab & Solusi:</strong> ${escapeHtml(log.explanation)}
+               </div>`
+            : ""
+        }
+        ${
+          log.details
+            ? `<pre style="background:#070d18;padding:8px;border-radius:6px;font-size:11px;color:var(--muted);overflow-x:auto;margin:4px 0 0;">${escapeHtml(
+                typeof log.details === "object" ? JSON.stringify(log.details, null, 2) : log.details
+              )}</pre>`
+            : ""
+        }
+      </div>
+      <button class="danger delete-single-log-btn" data-id="${log.id}" style="padding:6px 10px;font-size:11px;" title="Hapus log ini">Hapus</button>
+    `;
+
+    item.querySelector(".delete-single-log-btn").addEventListener("click", async () => {
+      await chrome.runtime.sendMessage({ type: "DELETE_LOG", id: log.id });
+      loadLogsList();
+    });
+
+    logListEl.appendChild(item);
+  });
+}
+
+async function handleClearAllLogs() {
+  if (!confirm("Hapus semua riwayat error?")) return;
+  await chrome.runtime.sendMessage({ type: "CLEAR_LOGS" });
+  loadLogsList();
 }
 
 function escapeHtml(str) {

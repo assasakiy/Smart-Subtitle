@@ -624,7 +624,19 @@
     url.searchParams.set("fmt", "json3");
     debug("Mengambil timedtext", { host: url.hostname, language: url.searchParams.get("lang") });
     const response = await fetch(url, { credentials: "include", cache: "no-store" });
-    if (!response.ok) throw new Error(`[fetch] Timedtext gagal: HTTP ${response.status}`);
+    if (!response.ok) {
+      const errMsg = `[fetch] Timedtext gagal: HTTP ${response.status}`;
+      chrome.runtime.sendMessage({
+        type: "LOG_ERROR",
+        log: {
+          level: "error",
+          source: "timedtext",
+          message: errMsg,
+          details: { url: url.toString(), videoId: currentVideoId, status: response.status }
+        }
+      }).catch(() => {});
+      throw new Error(errMsg);
+    }
     let payload;
     try {
       payload = await response.json();
@@ -999,6 +1011,15 @@
   function fail(message) {
     error = message;
     phase = "error";
+    chrome.runtime.sendMessage({
+      type: "LOG_ERROR",
+      log: {
+        level: "error",
+        source: "content",
+        message: String(message || ""),
+        details: { videoId: currentVideoId, source, phase }
+      }
+    }).catch(() => {});
     return getState();
   }
 

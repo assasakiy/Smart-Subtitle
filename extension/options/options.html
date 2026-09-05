@@ -810,6 +810,29 @@
           </div>
         </div>
       </div>
+
+      <!-- TAB 4: RIWAYAT / LOG ERROR -->
+      <div id="tab-logs" class="tab-pane">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;">
+          <div>
+            <h1 class="section-title">Riwayat Error & Log</h1>
+            <p class="section-sub">Catatan kendala teknis (rate limit YouTube 429, timeout AI, host error) untuk pemecahan masalah.</p>
+          </div>
+          <div style="display:flex;gap:10px;">
+            <button id="clearLogsBtn" class="danger" disabled>Hapus Semua Log</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <span style="font-weight:600;font-size:13px;color:var(--text);">Daftar Kejadian Error</span>
+            <span id="logCountBadge" class="badge">0 Log</span>
+          </div>
+          <div id="logList" class="cache-list">
+            <div class="cache-empty">Belum ada catatan error.</div>
+          </div>
+        </div>
+      </div>
     </div>
   </main>
 

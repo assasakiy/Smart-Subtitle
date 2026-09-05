@@ -17,6 +17,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     DELETE_CACHE: () => deleteCacheItem(message.key),
     DELETE_BATCH_CACHE: () => deleteBatchCacheItems(message.keys),
     CLEAR_ALL_CACHE: () => clearAllCache(),
+    LOG_ERROR: () => recordLog(message.log),
+    GET_LOGS: () => readLogs(),
+    DELETE_LOG: () => deleteSingleLog(message.id),
+    CLEAR_LOGS: () => clearAllLogs(),
   };
   if (!tasks[message.type]) return;
 
@@ -112,6 +116,54 @@ async function clearAllCache() {
     tx.oncomplete = () => resolve({ ok: true });
     tx.onerror = () => reject(tx.error);
   }).finally(() => db.close());
+}
+
+const LOGS_KEY = "error_logs";
+const MAX_LOGS = 100;
+
+async function recordLog(log = {}) {
+  const data = await chrome.storage.local.get({ [LOGS_KEY]: [] });
+  const logs = Array.isArray(data[LOGS_KEY]) ? data[LOGS_KEY] : [];
+  const msg = String(log.message || "");
+  let explanation = "";
+  if (msg.includes("429")) {
+    explanation = "YouTube membatasi request subtitle (Rate Limit). Buka tab YouTube baru, tunggu beberapa menit, atau ganti koneksi jaringan.";
+  } else if (msg.includes("Timedtext")) {
+    explanation = "Gagal mengambil trek subtitle dari YouTube.";
+  } else if (msg.includes("Network error") || msg.includes("Failed to fetch")) {
+    explanation = "Gagal terhubung ke endpoint AI atau internet.";
+  }
+
+  const entry = {
+    id: "log_" + Date.now() + "_" + Math.random().toString(36).substring(2, 7),
+    timestamp: Date.now(),
+    level: log.level || "error",
+    source: log.source || "general",
+    message: msg,
+    explanation,
+    details: log.details || null,
+  };
+  logs.unshift(entry);
+  if (logs.length > MAX_LOGS) logs.length = MAX_LOGS;
+  await chrome.storage.local.set({ [LOGS_KEY]: logs });
+  return { ok: true, entry };
+}
+
+async function readLogs() {
+  const data = await chrome.storage.local.get({ [LOGS_KEY]: [] });
+  return { ok: true, logs: Array.isArray(data[LOGS_KEY]) ? data[LOGS_KEY] : [] };
+}
+
+async function deleteSingleLog(id) {
+  const data = await chrome.storage.local.get({ [LOGS_KEY]: [] });
+  const logs = (Array.isArray(data[LOGS_KEY]) ? data[LOGS_KEY] : []).filter((l) => l.id !== id);
+  await chrome.storage.local.set({ [LOGS_KEY]: logs });
+  return { ok: true };
+}
+
+async function clearAllLogs() {
+  await chrome.storage.local.set({ [LOGS_KEY]: [] });
+  return { ok: true };
 }
 
 async function listModels(overrides = {}) {
