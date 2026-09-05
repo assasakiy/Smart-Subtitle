@@ -135,12 +135,35 @@ async function setupAppVersionAndUpdates() {
   if (versionEl) versionEl.textContent = `v${currentVersion}`;
 
   try {
-    const res = await fetch("https://api.github.com/repos/assasakiy/Smart-Subtitle/releases/latest", {
+    let latestTag = "";
+    let htmlUrl = "https://github.com/assasakiy/Smart-Subtitle/releases";
+    let downloadUrl = "";
+
+    // 1. Coba fetch latest GitHub Release
+    const relRes = await fetch("https://api.github.com/repos/assasakiy/Smart-Subtitle/releases/latest", {
       headers: { Accept: "application/vnd.github.v3+json" },
     });
-    if (!res.ok) return;
-    const release = await res.json();
-    const latestTag = String(release.tag_name || "").replace(/^v/i, "").trim();
+
+    if (relRes.ok) {
+      const release = await relRes.json();
+      latestTag = String(release.tag_name || "").replace(/^v/i, "").trim();
+      htmlUrl = release.html_url || htmlUrl;
+      downloadUrl = release.zipball_url || "";
+    } else if (relRes.status === 404) {
+      // 2. Fallback: Cek git tags jika belum dibuat GitHub Release formal
+      const tagRes = await fetch("https://api.github.com/repos/assasakiy/Smart-Subtitle/tags", {
+        headers: { Accept: "application/vnd.github.v3+json" },
+      });
+      if (tagRes.ok) {
+        const tags = await tagRes.json();
+        if (Array.isArray(tags) && tags.length > 0) {
+          latestTag = String(tags[0].name || "").replace(/^v/i, "").trim();
+          htmlUrl = `https://github.com/assasakiy/Smart-Subtitle/releases/tag/v${latestTag}`;
+          downloadUrl = tags[0].zipball_url || "";
+        }
+      }
+    }
+
     if (latestTag && isNewerVersion(latestTag, currentVersion)) {
       const updateBox = document.querySelector("#updateNoticeBox");
       const changeLogBtn = document.querySelector("#changeLogBtn");
@@ -148,7 +171,7 @@ async function setupAppVersionAndUpdates() {
       const nativeUpdateStatus = document.querySelector("#nativeUpdateStatus");
 
       if (updateBox && changeLogBtn) {
-        changeLogBtn.href = release.html_url || "https://github.com/assasakiy/Smart-Subtitle/releases/latest";
+        changeLogBtn.href = htmlUrl;
         changeLogBtn.textContent = `Change (v${latestTag}) ↗`;
         updateBox.style.display = "flex";
 
@@ -157,7 +180,6 @@ async function setupAppVersionAndUpdates() {
             nativeUpdateStatus.textContent = "Menghubungi helper updater...";
             triggerNativeUpdateBtn.disabled = true;
 
-            const downloadUrl = release.zipball_url || "";
             chrome.runtime.sendNativeMessage(
               "com.aisubtitle.updater",
               { action: "update", downloadUrl },
@@ -182,7 +204,9 @@ async function setupAppVersionAndUpdates() {
         }
       }
     }
-  } catch {}
+  } catch (err) {
+    // Silent fail jika offline/rate-limit
+  }
 }
 
 function isNewerVersion(latest, current) {
