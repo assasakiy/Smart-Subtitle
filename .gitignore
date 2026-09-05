@@ -8,3 +8,5 @@ $RECYCLE.BIN/
 # Temporary files
 *.tmp
 *.log
+*.pem
+*.crx

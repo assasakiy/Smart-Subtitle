@@ -4,37 +4,37 @@
   "version": "0.1.0",
   "description": "Transkripsi subtitle YouTube dengan endpoint OpenAI-compatible dan sinkronisasi lokal.",
   "icons": {
-    "16": "icons/icon16.png",
-    "32": "icons/icon32.png",
-    "48": "icons/icon48.png",
-    "128": "icons/icon128.png"
+    "16": "extension/icons/icon16.png",
+    "32": "extension/icons/icon32.png",
+    "48": "extension/icons/icon48.png",
+    "128": "extension/icons/icon128.png"
   },
   "permissions": ["storage", "activeTab", "nativeMessaging"],
   "optional_host_permissions": ["https://*/*", "http://localhost/*", "http://127.0.0.1/*"],
   "background": {
-    "service_worker": "background.js"
+    "service_worker": "extension/background.js"
   },
   "action": {
-    "default_popup": "popup.html",
+    "default_popup": "extension/popup.html",
     "default_title": "Subtitle Sync AI",
     "default_icon": {
-      "16": "icons/icon16.png",
-      "32": "icons/icon32.png",
-      "48": "icons/icon48.png",
-      "128": "icons/icon128.png"
+      "16": "extension/icons/icon16.png",
+      "32": "extension/icons/icon32.png",
+      "48": "extension/icons/icon48.png",
+      "128": "extension/icons/icon128.png"
     }
   },
-  "options_page": "options/options.html",
+  "options_page": "extension/options/options.html",
   "content_scripts": [
     {
       "matches": ["https://www.youtube.com/*"],
-      "js": ["youtube-main.js"],
+      "js": ["extension/youtube-main.js"],
       "run_at": "document_start",
       "world": "MAIN"
     },
     {
       "matches": ["https://www.youtube.com/*"],
-      "js": ["content.js"],
+      "js": ["extension/content.js"],
       "run_at": "document_idle"
     }
   ]
