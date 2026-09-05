@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Subtitle Sync AI",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Transkripsi subtitle YouTube dengan endpoint OpenAI-compatible dan sinkronisasi lokal.",
   "icons": {
     "16": "extension/icons/icon16.png",

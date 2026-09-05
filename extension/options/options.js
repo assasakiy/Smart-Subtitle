@@ -130,7 +130,7 @@ function setupNavigation() {
 
 async function setupAppVersionAndUpdates() {
   const manifest = chrome.runtime.getManifest();
-  const currentVersion = manifest?.version || "0.1.0";
+  const currentVersion = manifest?.version || "0.1.1";
   const versionEl = document.querySelector("#optionsVersion");
   if (versionEl) versionEl.textContent = `v${currentVersion}`;
 
