@@ -768,11 +768,17 @@
         pointer-events: none;
       }
       .text {
+        display: inline-block;
         box-decoration-break: clone;
         -webkit-box-decoration-break: clone;
         background: rgba(8, 12, 20, .82);
         padding: .14em .42em;
         border-radius: .28em;
+      }
+      .text:empty {
+        display: none;
+        padding: 0;
+        background: transparent;
       }
       .dock-wrap {
         position: absolute;
@@ -981,7 +987,12 @@
       text = segment?.text || "";
     }
 
-    if (textNode && textNode.textContent !== text) textNode.textContent = text;
+    if (textNode) {
+      if (textNode.textContent !== text) {
+        textNode.textContent = text;
+      }
+      textNode.style.display = text ? "inline-block" : "none";
+    }
     renderFrame = requestAnimationFrame(render);
   }
 
