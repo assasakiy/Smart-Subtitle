@@ -783,7 +783,7 @@
     flush();
 
     // Clamped padding: start - 0.08, end + 0.12, hindari overlap dengan segmen berikutnya
-    return segments.map((seg, idx) => {
+    const rawResult = segments.map((seg, idx) => {
       const next = segments[idx + 1];
       const rawStart = Math.max(0, seg.firstStart - 0.08);
       const targetEnd = seg.lastEnd + 0.12;
@@ -795,6 +795,31 @@
         text: seg.text,
       };
     });
+
+    // Pass kedua (Post-Processing): Gandeng segmen orphan (hanya 1-2 kata) ke segmen sebelumnya/sesudahnya
+    const mergedResult = [];
+    for (let i = 0; i < rawResult.length; i++) {
+      const cur = rawResult[i];
+      const words = cur.text.trim().split(/\s+/).filter(Boolean);
+
+      // Jika segmen ini sangat pendek (<= 2 kata) dan ada segmen sebelumnya dalam rentang waktu dekat
+      if (words.length <= 2 && mergedResult.length > 0) {
+        const prev = mergedResult[mergedResult.length - 1];
+        const prevWords = prev.text.trim().split(/\s+/).filter(Boolean);
+        const gapWithPrev = cur.start - prev.end;
+
+        // Gandeng ke belakang jika jeda tidak terputus terlalu lama (< 2.5s) dan total kata tidak melebihi batas (<= 16 kata)
+        if (gapWithPrev <= 2.5 && (prevWords.length + words.length) <= 16) {
+          prev.end = cur.end;
+          prev.text = `${prev.text.replace(/[.?!]+$/, "")} ${cur.text}`.trim();
+          continue;
+        }
+      }
+
+      mergedResult.push({ ...cur });
+    }
+
+    return mergedResult;
   }
 
   function chooseTrack(tracks, identifier) {
