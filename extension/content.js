@@ -22,6 +22,9 @@
   let source = null;
   let currentJob = null;
   let cachedTracks = [];
+  let currentTrackId = "";
+  let currentTargetLanguage = "";
+  let currentTextModel = "";
 
   let userFontSize = 24;
   let userPositionBottom = 8;
@@ -88,6 +91,8 @@
     if (sourceMode === "original") {
       const track = chooseTrack(cachedTracks, trackId || targetLanguage);
       const trackKey = track?.vssId || track?.languageCode || trackId || targetLanguage;
+      currentTrackId = trackKey;
+      currentTargetLanguage = track?.languageCode || trackKey;
       const kind = track?.kind || "manual";
       const key = originalCacheKey(currentVideoId, trackKey, kind);
       const cached = await readCache(key);
@@ -104,6 +109,8 @@
       // mode captions AI
       const lang = targetLanguage || "id";
       const model = textModel || "gpt-4o-mini";
+      currentTargetLanguage = lang;
+      currentTextModel = model;
       const key = captionCacheKey(currentVideoId, lang, model);
       const cached = await readCache(key);
       if (cached?.schema === 2 && Array.isArray(cached.batches)) {
@@ -145,6 +152,7 @@
 
   async function startOriginalGeneration(settings, video) {
     cancelCurrentJob();
+    currentTrackId = settings.trackId || settings.targetLanguage;
     const capturedVideoId = currentVideoId;
     debug("Mulai Original Smart Segmentation", { videoId: capturedVideoId, trackId: settings.trackId || settings.targetLanguage });
 
@@ -222,6 +230,8 @@
 
   async function startCaptionGeneration(settings, video) {
     cancelCurrentJob();
+    currentTargetLanguage = settings.targetLanguage;
+    currentTextModel = settings.textModel;
     const capturedVideoId = currentVideoId;
     debug("Mulai caption pipeline progresif", { videoId: capturedVideoId, targetLanguage: settings.targetLanguage, textModel: settings.textModel });
 
@@ -1378,6 +1388,9 @@
       error,
       progress,
       source,
+      currentTrackId,
+      currentTargetLanguage,
+      currentTextModel,
       videoId: currentVideoId,
       captionAvailable: Boolean(cachedTracks && cachedTracks.length),
       availableTracks: cachedTracks.map((t) => ({

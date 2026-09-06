@@ -158,7 +158,30 @@ async function refreshState() {
   const response = await sendToTab({ type: "GET_STATE" });
   if (!response) return disableForPage("Muat ulang halaman YouTube.");
   state = response;
+
+  // Pulihkan pilihan sumber subtitle jika sedang aktif atau tersimpan di tab
+  if (state.source === "original" || state.source === "captions" || state.source === "audio") {
+    source.value = state.source;
+  }
   renderSourceFields();
+
+  // Pulihkan track / bahasa yang sedang dipakai
+  if (state.source === "original" && state.currentTrackId) {
+    if (language.querySelector(`option[value="${state.currentTrackId}"]`)) {
+      language.value = state.currentTrackId;
+      syncCustomSelect(language);
+    }
+  } else if (state.source === "captions") {
+    if (state.currentTargetLanguage && language.querySelector(`option[value="${state.currentTargetLanguage}"]`)) {
+      language.value = state.currentTargetLanguage;
+      syncCustomSelect(language);
+    }
+    if (state.currentTextModel && textModel.querySelector(`option[value="${state.currentTextModel}"]`)) {
+      textModel.value = state.currentTextModel;
+      syncCustomSelect(textModel);
+    }
+  }
+
   render();
 }
 
