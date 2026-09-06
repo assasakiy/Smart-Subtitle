@@ -645,17 +645,27 @@
       const curText = currentGroup.map((c) => c.text).join(" ");
       const potentialChars = curText.length + 1 + cue.text.length;
 
-      // 1. Akhir kalimat pada cue sebelumnya (. ? !) -> POTONG
-      const prevEndsSentence = /[.?!]$/.test(prev.text.trim());
+      // 1. Akhir kalimat pada cue sebelumnya (. ? ! atau tanda petik penutup) -> POTONG
+      const prevEndsSentence = /[.?!]["'”’]?$/.test(prev.text.trim());
       if (prevEndsSentence) {
         flush();
         currentGroup.push(cue);
         continue;
       }
 
-      // 1b. Deteksi perpindahan pembicara/dialog baru (- kata, >> kata, [suara])
-      const isSpeakerChange = /^[-–—]\s+|^>>\s*|^\[/.test(cue.text.trim());
-      if (isSpeakerChange) {
+      // 1b. Deteksi perpindahan pembicara / dialog baru:
+      // - Strip dialog: "- Kata", "– Kata", "— Kata"
+      // - Penanda YouTube: ">> Kata", ">>> Kata"
+      // - Tag narator/suara/efek: "[Music]", "(Applause)", "[John]"
+      // - Label nama pembicara: "JOHN:", "Host:", "Speaker 1:", "Dr. Smith:"
+      // - Huruf kapital baru setelah jeda bicara mikro (>= 220ms) saat durasi grup sudah cukup (>= 1.4s)
+      const trimmedText = cue.text.trim();
+      const isSpeakerDash = /^[-–—]\s+|^>{2,}\s*/.test(trimmedText);
+      const isBracketTag = /^[\[\(][^\]\)]+[\]\)]/.test(trimmedText);
+      const isSpeakerNamePrefix = /^[A-Z0-9][A-Za-z0-9\s._-]{1,20}:\s+/.test(trimmedText);
+      const isCapitalAfterPause = gap >= 0.22 && /^[A-Z]/.test(trimmedText) && (prev.end - curFirst.start) >= 1.4;
+
+      if (isSpeakerDash || isBracketTag || isSpeakerNamePrefix || isCapitalAfterPause) {
         flush();
         currentGroup.push(cue);
         continue;
