@@ -331,6 +331,47 @@
     };
   }
 
+  function splitLongSegmentIntoSentences(seg) {
+    const text = String(seg.text || "").trim();
+    // Cari batas kalimat: titik/tanya/seru yang diikuti spasi dan huruf kapital, atau tanda dialog baru
+    const sentenceBoundary = /([.?!]["'”’]?)\s+(?=[A-Z0-9"'-])/g;
+    const parts = [];
+    let lastIndex = 0;
+    let match;
+
+    while ((match = sentenceBoundary.exec(text)) !== null) {
+      const endIdx = match.index + match[1].length;
+      parts.push(text.slice(lastIndex, endIdx).trim());
+      lastIndex = match.index + match[0].length;
+    }
+    if (lastIndex < text.length) {
+      const tail = text.slice(lastIndex).trim();
+      if (tail) parts.push(tail);
+    }
+
+    // Jika hanya 1 kalimat, kembalikan langsung
+    if (parts.length <= 1) return [seg];
+
+    // Bagi durasi secara proporsional berdasarkan panjang karakter tiap kalimat
+    const totalChars = parts.reduce((acc, p) => acc + p.length, 0) || 1;
+    const totalDuration = Math.max(0.6, seg.end - seg.start);
+    let curStart = seg.start;
+    const result = [];
+
+    for (let i = 0; i < parts.length; i++) {
+      const part = parts[i];
+      const sliceDuration = (part.length / totalChars) * totalDuration;
+      const curEnd = i === parts.length - 1 ? seg.end : Number((curStart + sliceDuration).toFixed(3));
+      result.push({
+        start: Number(curStart.toFixed(3)),
+        end: Number(curEnd.toFixed(3)),
+        text: part,
+      });
+      curStart = curEnd;
+    }
+    return result;
+  }
+
   function applyJobState(job) {
     batches = job.batches;
     segments = collectCompletedSegments(job.batches);
@@ -377,7 +418,13 @@
             throw new Error(response?.error || `Batch ${batchId + 1} gagal diproses.`);
           }
 
-          batch.segments = response.segments;
+          // Pecah segmen AI jika terdapat beberapa kalimat dalam satu grup agar tidak menumpuk di layar
+          const flattened = [];
+          for (const s of response.segments) {
+            flattened.push(...splitLongSegmentIntoSentences(s));
+          }
+
+          batch.segments = flattened;
           batch.status = "complete";
           job.completedCount += 1;
           applyJobState(job);
@@ -622,12 +669,16 @@
       if (!currentGroup.length) return;
       const first = currentGroup[0];
       const last = currentGroup[currentGroup.length - 1];
-      const text = currentGroup.map((c) => c.text).join(" ").trim();
-      segments.push({
-        firstStart: first.start,
-        lastEnd: last.end,
-        text,
-      });
+      let text = currentGroup.map((c) => c.text).join(" ").trim();
+      // Bersihkan tanda baca liar di awal kalimat (misal ".Dari", ",dan", "?kenapa")
+      text = text.replace(/^[.,;:!?-]+\s*/, "").trim();
+      if (text) {
+        segments.push({
+          firstStart: first.start,
+          lastEnd: last.end,
+          text,
+        });
+      }
       currentGroup = [];
     };
 

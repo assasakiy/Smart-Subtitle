@@ -258,7 +258,13 @@ async function refineSegmentBatch(segments, settings, allowGrouping = true, retr
     messages: [
       {
         role: "system",
-        content: `Perbaiki ejaan, kapitalisasi, tanda baca, segmentasi natural percakapan, dan terjemahkan ke bahasa ${settings.targetLanguage}. Input berbentuk [id,text]. Bila ada 'context_previous', gunakan hanya sebagai pemahaman alur sambungan kalimat dari dialog sebelumnya (JANGAN terjemahkan context_previous tersebut). ${allowGrouping ? "Gabungkan ID berurutan bila membentuk kalimat utuh." : "Jangan gabungkan segmen."} Balas JSON valid tanpa markdown: {"segments":[{"ids":[0,1],"text":"..."}]}`,
+        content: `Anda adalah penerjemah & editor subtitle profesional. Tugas: perbaiki ejaan, kapitalisasi, tanda baca alami, dan terjemahkan ke bahasa ${settings.targetLanguage}.
+PENTING TENTANG KONTEKS PERCAKAPAN:
+1. Pahami siapa yang berbicara dan siapa lawan bicaranya. Jangan terbalik antara kata ganti orang (misal: "you/kau/kamu/anda" vs "I/me/aku/saya"). Perhatikan arah subjek dan objek pembicaraan!
+2. Jaga konsistensi panggilan dan gaya bahasa sesuai suasana video (santai/formal).
+3. Batasi setiap segmen menjadi 1 kalimat nyaman dibaca (jangan menumpuk 2-3 kalimat panjang sekaligus di 1 segmen).
+4. Bila ada 'context_previous', itu HANYA referensi alur dialog sebelumnya (JANGAN diterjemahkan atau disertakan di output).
+5. Output format JSON valid tanpa markdown: {"segments":[{"ids":[0,1],"text":"..."}]}`,
       },
       { role: "user", content: JSON.stringify(userPayload) },
     ],
