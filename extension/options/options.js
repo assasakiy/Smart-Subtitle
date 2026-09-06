@@ -527,7 +527,7 @@ async function loadLogsList() {
   logs.forEach((log) => {
     const item = document.createElement("div");
     const isInfo = log.level === "info";
-    item.className = "cache-item";
+    item.className = "cache-item log-item";
     if (isInfo) item.style.borderColor = "rgba(80, 200, 120, 0.4)";
     const timeStr = new Date(log.timestamp).toLocaleString("id-ID", {
       dateStyle: "medium",
@@ -536,27 +536,27 @@ async function loadLogsList() {
 
     item.innerHTML = `
       <div class="cache-info">
-        <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px;flex-wrap:wrap;">
           <span class="badge" style="background:${isInfo ? "rgba(80, 200, 120, 0.2);color:#50c878;" : "var(--danger-dim);color:var(--danger);"}">${escapeHtml(log.source.toUpperCase())}</span>
-          <span style="font-size:12px;color:var(--muted);">${timeStr}</span>
+          <span style="font-size:11px;color:var(--muted);">${timeStr}</span>
         </div>
-        <h4 style="color:${isInfo ? "#a8ffc8" : "#ff8e9b"};margin-bottom:4px;font-family:monospace;font-size:13px;">${escapeHtml(log.message)}</h4>
+        <h4 style="color:${isInfo ? "#a8ffc8" : "#ff8e9b"};margin-bottom:6px;font-family:monospace;font-size:13px;word-break:break-word;line-height:1.4;">${escapeHtml(log.message)}</h4>
         ${
           log.explanation
-            ? `<div style="background:rgba(255,255,255,0.05);padding:8px 12px;border-radius:8px;margin:6px 0 8px;font-size:12px;color:#cfd9e8;">
+            ? `<div style="background:rgba(255,255,255,0.05);padding:8px 12px;border-radius:8px;margin:6px 0;font-size:12px;color:#cfd9e8;line-height:1.4;">
                 <strong>Penyebab & Solusi:</strong> ${escapeHtml(log.explanation)}
                </div>`
             : ""
         }
         ${
           log.details
-            ? `<pre style="background:#070d18;padding:8px;border-radius:6px;font-size:11px;color:var(--muted);overflow-x:auto;margin:4px 0 0;">${escapeHtml(
+            ? `<pre class="log-details-pre">${escapeHtml(
                 typeof log.details === "object" ? JSON.stringify(log.details, null, 2) : log.details
               )}</pre>`
             : ""
         }
       </div>
-      <button class="danger delete-single-log-btn" data-id="${log.id}" style="padding:6px 10px;font-size:11px;" title="Hapus log ini">Hapus</button>
+      <button class="danger delete-single-log-btn" data-id="${log.id}" style="padding:6px 10px;font-size:11px;flex-shrink:0;" title="Hapus log ini">Hapus</button>
     `;
 
     item.querySelector(".delete-single-log-btn").addEventListener("click", async () => {
