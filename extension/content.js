@@ -106,13 +106,17 @@
         phase = "idle";
       }
     } else {
-      // mode captions AI
+      // mode captions AI: cache berbasis videoId & targetLanguage (independen dari model)
       const lang = targetLanguage || "id";
       const model = textModel || "gpt-4o-mini";
       currentTargetLanguage = lang;
       currentTextModel = model;
-      const key = captionCacheKey(currentVideoId, lang, model);
-      const cached = await readCache(key);
+      const key = captionCacheKey(currentVideoId, lang);
+      let cached = await readCache(key);
+      // Fallback baca cache versi lama (yang masih menyimpan model di key)
+      if (!cached) {
+        cached = await readCache(JSON.stringify(["captions-v2", currentVideoId, lang, model]));
+      }
       if (cached?.schema === 2 && Array.isArray(cached.batches)) {
         rawSegments = cached.rawSegments || [];
         batches = cached.batches;
@@ -279,8 +283,11 @@
       const fingerprint = await fingerprintSegments(rawSegments);
       assertCurrentVideo(capturedVideoId);
 
-      const key = captionCacheKey(capturedVideoId, settings.targetLanguage, settings.textModel);
-      const cached = await readCache(key);
+      const key = captionCacheKey(capturedVideoId, settings.targetLanguage);
+      let cached = await readCache(key);
+      if (!cached) {
+        cached = await readCache(JSON.stringify(["captions-v2", capturedVideoId, settings.targetLanguage, settings.textModel]));
+      }
       assertCurrentVideo(capturedVideoId);
 
       const job = restoreOrCreateJob({
@@ -1296,25 +1303,14 @@
   async function loadDefaultCache() {
     if (!currentVideoId) return;
     const defaults = await chrome.storage.local.get({ textModel: "gpt-4o-mini", targetLanguage: "id" });
-    const key = captionCacheKey(currentVideoId, defaults.targetLanguage, defaults.textModel);
-    const cached = await readCache(key);
+    const key = captionCacheKey(currentVideoId, defaults.targetLanguage);
+    let cached = await readCache(key);
+    if (!cached) {
+      cached = await readCache(JSON.stringify(["captions-v2", currentVideoId, defaults.targetLanguage, defaults.textModel]));
+    }
     if (cached?.schema === 2 && Array.isArray(cached.batches)) {
       rawSegments = cached.rawSegments || [];
       batches = cached.batches;
-      segments = collectCompletedSegments(batches);
-      const completed = batches.filter((b) => b.status === "complete").length;
-      if (completed > 0) {
-        source = "captions";
-        phase = completed === batches.length ? "generated" : "generating";
-        progress = `${completed}/${batches.length} batch siap dari cache.`;
-      }
-      return;
-    }
-
-    const legacy = await readCache(captionCacheKey(currentVideoId, defaults.targetLanguage, defaults.textModel));
-    if (legacy?.schema === 2 && Array.isArray(legacy.batches)) {
-      rawSegments = legacy.rawSegments || [];
-      batches = legacy.batches;
       segments = collectCompletedSegments(batches);
       const completed = batches.filter((b) => b.status === "complete").length;
       if (completed > 0) {
@@ -1355,8 +1351,8 @@
     return videoId ? JSON.stringify([videoId, languageCode, model]) : "";
   }
 
-  function captionCacheKey(videoId, languageCode, model) {
-    return videoId ? JSON.stringify(["captions-v2", videoId, languageCode, model]) : "";
+  function captionCacheKey(videoId, languageCode) {
+    return videoId ? JSON.stringify(["captions-v2", videoId, languageCode]) : "";
   }
 
   function originalCacheKey(videoId, trackId, kind) {
