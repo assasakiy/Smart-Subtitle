@@ -114,7 +114,9 @@
         if (completed > 0) {
           source = "captions";
           phase = completed === batches.length ? "generated" : "generating";
-          progress = `${completed}/${batches.length} batch siap dari cache.`;
+          progress = completed === batches.length
+            ? "Semua batch AI lengkap dari cache lokal."
+            : `${completed}/${batches.length} batch siap dari cache.`;
         } else {
           source = "captions";
           phase = "idle";
@@ -229,12 +231,41 @@
       const track = chooseTrack(tracks, settings.targetLanguage);
       if (!track) throw new Error("[track] YouTube tidak mengembalikan caption track.");
 
-      const rawCues = await fetchCaptionSegments(track.baseUrl);
+      // Cek apakah Smart Segmentation lokal sudah tersimpan di cache
+      const trackKey = track.vssId || track.languageCode;
+      const origKey = originalCacheKey(capturedVideoId, trackKey, track.kind);
+      const cachedOrig = await readCache(origKey);
       assertCurrentVideo(capturedVideoId);
-      if (!rawCues.length) throw new Error("[parse] Timedtext tidak memiliki segmen yang dapat digunakan.");
 
-      const normalized = normalizeCaptionCues(rawCues);
-      rawSegments = segmentCuesLocally(normalized); // Fallback cerdas: smart segmentation lokal (bukan mentah potongan kecil)
+      let smartSegments = [];
+      if (cachedOrig && Array.isArray(cachedOrig.segments) && cachedOrig.segments.length > 0) {
+        debug("Memakai smart segmentation dari cache lokal", { count: cachedOrig.segments.length });
+        smartSegments = cachedOrig.segments;
+      } else {
+        const rawCues = await fetchCaptionSegments(track.baseUrl);
+        assertCurrentVideo(capturedVideoId);
+        if (!rawCues.length) throw new Error("[parse] Timedtext tidak memiliki segmen yang dapat digunakan.");
+
+        const normalized = normalizeCaptionCues(rawCues);
+        smartSegments = segmentCuesLocally(normalized);
+        // Simpan ke cache lokal agar tidak perlu fetch ulang lagi
+        await writeCache({
+          key: origKey,
+          schema: 2,
+          videoId: capturedVideoId,
+          videoTitle: getVideoTitle(),
+          targetLanguage: track.languageCode,
+          source: "youtube",
+          sourceType: track.kind || "manual",
+          processing: "smart",
+          textModel: null,
+          segments: smartSegments,
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        });
+      }
+
+      rawSegments = smartSegments.map((cue, id) => ({ ...cue, id }));
       const fingerprint = await fingerprintSegments(rawSegments);
       assertCurrentVideo(capturedVideoId);
 
@@ -319,6 +350,18 @@
         if (!isCurrentJob(job)) return;
         try {
           progress = `Memproses batch ${batchId + 1}/${job.batches.length}${attempt > 1 ? ` (coba lagi ${attempt}/3)` : ""}…`;
+          
+          // Ambil 1 kalimat terakhir dari batch sebelumnya sebagai context kesinambungan dialog
+          let previousContext = "";
+          if (batchId > 0) {
+            const prevBatch = job.batches[batchId - 1];
+            if (prevBatch?.segments?.length) {
+              previousContext = prevBatch.segments.at(-1).text;
+            } else if (prevBatch?.cues?.length) {
+              previousContext = prevBatch.cues.at(-1).text;
+            }
+          }
+
           const response = await chrome.runtime.sendMessage({
             type: "ENHANCE_CAPTIONS",
             jobId: job.id,
@@ -326,6 +369,7 @@
             segments: batch.cues,
             textModel: job.textModel,
             targetLanguage: job.targetLanguage,
+            previousContext,
           });
 
           if (!isCurrentJob(job)) return;
@@ -392,10 +436,17 @@
 
     for (let index = 0; index < cues.length; index += 1) {
       const cue = cues[index];
+      const prev = current[current.length - 1];
       const nextCandidate = [...current, cue];
       const estimate = estimateOutputTokens(nextCandidate);
 
-      if (current.length && estimate > 6500) {
+      // Cek apakah cue sebelumnya adalah akhir kalimat alami (. ? !) atau jeda jeda bicara
+      const prevEndsSentence = prev ? /[.?!]$/.test(prev.text.trim()) : false;
+      const isNaturalSplitPoint = prevEndsSentence || (prev && cue.start - prev.end >= 0.4);
+
+      // Potong batch hanya jika token sudah mendekati batas (>= 4500) DAN berada di batas kalimat alami
+      // Atau jika sudah mencapai batas keras 6800 token
+      if (current.length && ((estimate >= 4500 && isNaturalSplitPoint) || estimate > 6800)) {
         batches.push(createBatch(batchId++, current));
         current = [cue];
       } else {
@@ -597,6 +648,14 @@
       // 1. Akhir kalimat pada cue sebelumnya (. ? !) -> POTONG
       const prevEndsSentence = /[.?!]$/.test(prev.text.trim());
       if (prevEndsSentence) {
+        flush();
+        currentGroup.push(cue);
+        continue;
+      }
+
+      // 1b. Deteksi perpindahan pembicara/dialog baru (- kata, >> kata, [suara])
+      const isSpeakerChange = /^[-–—]\s+|^>>\s*|^\[/.test(cue.text.trim());
+      if (isSpeakerChange) {
         flush();
         currentGroup.push(cue);
         continue;

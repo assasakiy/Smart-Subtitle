@@ -211,7 +211,7 @@ async function transcribe({ audio, mimeType, transcriptionModel, textModel, targ
   return { ok: true, segments: translated, text: String(payload.text || "").trim() };
 }
 
-async function enhanceCaptions({ segments, textModel, targetLanguage, jobId, batchId }, tabId) {
+async function enhanceCaptions({ segments, textModel, targetLanguage, jobId, batchId, previousContext }, tabId) {
   if (!Array.isArray(segments) || !segments.length || segments.length > 10000) throw new Error("Segmen caption tidak valid.");
   const cleanSegments = segments.map(({ id, start, end, text }) => ({
     id: Number(id),
@@ -228,7 +228,7 @@ async function enhanceCaptions({ segments, textModel, targetLanguage, jobId, bat
   if (!settings.textModel || !settings.targetLanguage) throw new Error("Pilih model terjemahan dan bahasa target.");
 
   notifyProgress(tabId, { jobId, batchId, message: `Memproses batch ${Number(batchId) + 1}…` });
-  const output = await refineSegmentBatch(cleanSegments, settings, true, false, tabId, { jobId, batchId });
+  const output = await refineSegmentBatch(cleanSegments, settings, true, false, tabId, { jobId, batchId, previousContext });
   return { ok: true, jobId, batchId, segments: output };
 }
 
@@ -239,6 +239,16 @@ async function translateSegments(segments, settings) {
 
 async function refineSegmentBatch(segments, settings, allowGrouping = true, retry = false, tabId = null, meta = {}) {
   const estimatedOutputTokens = estimateOutputTokens(segments);
+  const userPayload = {
+    cues: segments.map(({ id, text }) => [id, text]),
+  };
+  if (meta.previousContext) {
+    userPayload.context_previous = meta.previousContext;
+  }
+  if (retry) {
+    userPayload.retry = "Output sebelumnya kurang pas. Pastikan output JSON valid dan petakan semua cue dengan tepat.";
+  }
+
   const requestBody = {
     model: settings.textModel,
     temperature: 0,
@@ -248,9 +258,9 @@ async function refineSegmentBatch(segments, settings, allowGrouping = true, retr
     messages: [
       {
         role: "system",
-        content: `Perbaiki ejaan, tanda baca, kapitalisasi, segmentasi natural, dan terjemahkan ke bahasa ${settings.targetLanguage}. Input berbentuk [id,text]. ${allowGrouping ? "Gabungkan hanya ID berurutan bila membentuk kalimat natural." : "Jangan gabungkan segmen."} Setiap ID wajib muncul tepat sekali, urut, tanpa hilang atau duplikat. Balas JSON valid tanpa markdown: {"segments":[{"ids":[0,1],"text":"..."}]}`,
+        content: `Perbaiki ejaan, kapitalisasi, tanda baca, segmentasi natural percakapan, dan terjemahkan ke bahasa ${settings.targetLanguage}. Input berbentuk [id,text]. Bila ada 'context_previous', gunakan hanya sebagai pemahaman alur sambungan kalimat dari dialog sebelumnya (JANGAN terjemahkan context_previous tersebut). ${allowGrouping ? "Gabungkan ID berurutan bila membentuk kalimat utuh." : "Jangan gabungkan segmen."} Balas JSON valid tanpa markdown: {"segments":[{"ids":[0,1],"text":"..."}]}`,
       },
-      { role: "user", content: JSON.stringify({ cues: segments.map(({ id, text }) => [id, text]), retry: retry ? "Output sebelumnya gagal validasi. Patuhi semua ID." : undefined }) },
+      { role: "user", content: JSON.stringify(userPayload) },
     ],
   };
   const payload = await requestChatCompletion(settings, requestBody, tabId, meta);
@@ -312,26 +322,51 @@ function estimateOutputTokens(segments) {
 }
 
 function reconstructSegments(input, result) {
-  if (!Array.isArray(result?.segments) || !result.segments.length) throw new Error("Respons tidak memiliki segments.");
-  const expectedIds = input.map(({ id }) => id);
-  const outputIds = result.segments.flatMap((segment) => Array.isArray(segment.ids) ? segment.ids : []);
-  if (outputIds.length !== expectedIds.length || outputIds.some((id, index) => id !== expectedIds[index])) {
-    throw new Error(`Coverage ID tidak valid. Diharapkan ${expectedIds[0]}–${expectedIds.at(-1)} berurutan.`);
+  if (!Array.isArray(result?.segments) || !result.segments.length) {
+    throw new Error("Respons AI tidak memiliki segments.");
   }
 
   const byId = new Map(input.map((segment) => [segment.id, segment]));
-  return result.segments.map((group) => {
-    if (!group.ids.length || !String(group.text || "").trim()) throw new Error("Group memiliki ids/text kosong.");
-    if (group.ids.some((id, index) => index && id !== group.ids[index - 1] + 1)) throw new Error("Group memakai ID tidak berurutan.");
-    const first = byId.get(group.ids[0]);
-    const last = byId.get(group.ids.at(-1));
-    if (!first || !last) throw new Error("Group memakai ID di luar input.");
-    return {
-      start: Math.max(0, first.start - 0.08),
-      end: last.end + 0.12,
+  const rawGroups = result.segments.filter((g) => g && String(g.text || "").trim());
+
+  if (!rawGroups.length) {
+    throw new Error("Semua grup segmen dari AI kosong.");
+  }
+
+  const reconstructed = [];
+  let lastEnd = input[0]?.start ?? 0;
+
+  for (let i = 0; i < rawGroups.length; i++) {
+    const group = rawGroups[i];
+    const rawIds = Array.isArray(group.ids) ? group.ids.filter((id) => byId.has(Number(id))).map(Number) : [];
+    
+    let start, end;
+    if (rawIds.length > 0) {
+      const minId = Math.min(...rawIds);
+      const maxId = Math.max(...rawIds);
+      start = byId.get(minId).start;
+      end = byId.get(maxId).end;
+    } else {
+      // Fallback proporsional jika AI lupa sertakan IDs
+      const ratioStart = i / rawGroups.length;
+      const ratioEnd = (i + 1) / rawGroups.length;
+      const totalDuration = (input.at(-1)?.end ?? lastEnd) - (input[0]?.start ?? 0);
+      start = (input[0]?.start ?? 0) + ratioStart * totalDuration;
+      end = (input[0]?.start ?? 0) + ratioEnd * totalDuration;
+    }
+
+    const safeStart = Math.max(lastEnd, Number(start.toFixed(3)));
+    const safeEnd = Math.max(safeStart + 0.3, Number(end.toFixed(3)));
+    lastEnd = safeEnd;
+
+    reconstructed.push({
+      start: safeStart,
+      end: safeEnd,
       text: String(group.text).trim(),
-    };
-  });
+    });
+  }
+
+  return reconstructed;
 }
 
 function extractAssistantContent(payload) {
