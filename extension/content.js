@@ -684,6 +684,22 @@
 
     for (let i = 0; i < cues.length; i++) {
       const cue = cues[i];
+
+      // Pindahkan tanda baca yang nyasar di awal cue ke akhir cue sebelumnya
+      if (currentGroup.length && /^[.,;:!?]+/.test(cue.text.trim())) {
+        const punctuationMatch = cue.text.trim().match(/^([.,;:!?]+)\s*(.*)$/);
+        if (punctuationMatch) {
+          const punct = punctuationMatch[1];
+          const remaining = punctuationMatch[2];
+          const prevCue = currentGroup[currentGroup.length - 1];
+          prevCue.text = prevCue.text.replace(/\s*$/, "") + punct;
+          cue.text = remaining;
+          if (!cue.text) {
+            continue; // jika cue hanya berisi tanda baca, jangan buat grup baru
+          }
+        }
+      }
+
       if (!currentGroup.length) {
         currentGroup.push(cue);
         continue;
