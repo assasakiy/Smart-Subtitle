@@ -651,16 +651,21 @@
   function segmentCuesLocally(cues) {
     if (!cues.length) return [];
     const conf = {
-      minDuration: 2.0,
+      minDuration: 1.8,
       targetMaxDuration: 6.0,
-      hardMaxDuration: 6.5,
-      targetMinChars: 30,
+      hardMaxDuration: 7.0,
+      minWords: 4,           // Minimal 4 kata agar tidak muncul 1-2 kata menggantung
+      targetMaxWords: 14,    // Target maksimal kata per baris tampilan
+      targetMinChars: 25,
       targetMaxChars: 80,
-      hardMaxChars: 100,
+      hardMaxChars: 110,
       softGap: 0.250,
-      sentenceGap: 0.550,
-      targetMaxCps: 20,
+      sentenceGap: 0.650,    // Jeda bicara antar kalimat
+      hardSentenceGap: 1.200 // Jeda panjang hening mutlak potong
     };
+
+    // Daftar kata sambung yang tidak boleh menggantung di akhir potongan kalimat
+    const danglingWordRegex = /\b(?:dan|yang|di|ke|dari|untuk|pada|dengan|karena|tetapi|tapi|atau|jika|bila|bahwa|serta|and|or|but|the|a|an|in|on|at|to|for|with|of|that|if|as)\s*$/i;
 
     const segments = [];
     let currentGroup = [];
@@ -710,11 +715,13 @@
       const curFirst = currentGroup[0];
       const potentialDuration = cue.end - curFirst.start;
       const curText = currentGroup.map((c) => c.text).join(" ");
+      const wordCount = curText.trim().split(/\s+/).filter(Boolean).length;
       const potentialChars = curText.length + 1 + cue.text.length;
 
-      // 1. Akhir kalimat pada cue sebelumnya (. ? ! atau tanda petik penutup) -> POTONG
+      // 1. Akhir kalimat pada cue sebelumnya (. ? ! atau tanda petik penutup)
       const prevEndsSentence = /[.?!]["'”’]?$/.test(prev.text.trim());
-      if (prevEndsSentence) {
+      // Hanya potong jika sudah mencapai minimal kata atau ada jeda hening yang cukup nyata
+      if (prevEndsSentence && (wordCount >= conf.minWords || gap >= conf.sentenceGap || potentialDuration >= conf.minDuration)) {
         flush();
         currentGroup.push(cue);
         continue;
@@ -738,30 +745,39 @@
         continue;
       }
 
-      // 2. Gap jeda bicara >= 550ms -> POTONG
-      if (gap >= conf.sentenceGap) {
+      // 2. Jeda hening panjang mutlak (>= 1.2 detik) -> POTONG
+      if (gap >= conf.hardSentenceGap) {
         flush();
         currentGroup.push(cue);
         continue;
       }
 
-      // 3. Batas keras (durasi > 6.5s ATAU karakter > 100) -> POTONG
+      // 2b. Jeda bicara antar kalimat (>= 650ms) jika kata sudah mencukupi
+      if (gap >= conf.sentenceGap && wordCount >= conf.minWords) {
+        flush();
+        currentGroup.push(cue);
+        continue;
+      }
+
+      // 3. Batas keras (durasi > 7s ATAU karakter > 110) -> POTONG
       if (potentialDuration > conf.hardMaxDuration || potentialChars > conf.hardMaxChars) {
         flush();
         currentGroup.push(cue);
         continue;
       }
 
-      // 4. Zona ideal tercapai (durasi >= 2s, karakter >= 30) dengan jeda alami (, ; :)
+      // 4. Zona ideal tercapai (durasi >= 2s, kata >= 4) dengan jeda alami (, ; :)
+      // TAPI cegah potong jika kata terakhir adalah kata sambung yang menggantung
+      const isDangling = danglingWordRegex.test(prev.text.trim());
       const curDuration = prev.end - curFirst.start;
       const hasNaturalBreak = /[,;:]$/.test(prev.text.trim()) || gap >= conf.softGap;
-      if (curDuration >= conf.minDuration && curText.length >= conf.targetMinChars && hasNaturalBreak) {
+      if (!isDangling && wordCount >= conf.minWords && (curDuration >= conf.minDuration || curText.length >= conf.targetMinChars) && hasNaturalBreak) {
         flush();
         currentGroup.push(cue);
         continue;
       }
 
-      // 5. Gap kecil (< 250ms) dan masih dalam batas target -> GABUNGKAN
+      // 5. Masih dalam batas target -> GABUNGKAN
       currentGroup.push(cue);
     }
     flush();
