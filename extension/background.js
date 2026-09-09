@@ -264,7 +264,8 @@ PENTING TENTANG KONTEKS PERCAKAPAN:
 2. Jaga konsistensi panggilan dan gaya bahasa sesuai suasana video (santai/formal).
 3. Batasi setiap segmen menjadi 1 kalimat nyaman dibaca (jangan menumpuk 2-3 kalimat panjang sekaligus di 1 segmen).
 4. Bila ada 'context_previous', itu HANYA referensi alur dialog sebelumnya (JANGAN diterjemahkan atau disertakan di output).
-5. Output format JSON valid tanpa markdown: {"segments":[{"ids":[0,1],"text":"..."}]}`,
+5. HANYA hasilkan teks murni. DILARANG menyertakan tag HTML/XML apa pun (seperti <b>, </b>, <i>, <font>, dll).
+6. Output format JSON valid tanpa markdown: {"segments":[{"ids":[0,1],"text":"..."}]}`,
       },
       { role: "user", content: JSON.stringify(userPayload) },
     ],
@@ -368,7 +369,11 @@ function reconstructSegments(input, result) {
     reconstructed.push({
       start: safeStart,
       end: safeEnd,
-      text: String(group.text).trim(),
+      text: String(group.text || "")
+        .replace(/<[^>]+>/g, "")
+        .replace(/&nbsp;/gi, " ")
+        .replace(/\s{2,}/g, " ")
+        .trim(),
     });
   }
 

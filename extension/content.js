@@ -349,7 +349,10 @@
   }
 
   function splitLongSegmentIntoSentences(seg) {
-    const text = String(seg.text || "").trim();
+    const text = String(seg.text || "")
+      .replace(/<[^>]+>/g, "")
+      .replace(/&nbsp;/gi, " ")
+      .trim();
     // Cari batas kalimat: titik/tanya/seru yang diikuti spasi dan huruf kapital, atau tanda dialog baru
     const sentenceBoundary = /([.?!]["'”’]?)\s+(?=[A-Z0-9"'-])/g;
     const parts = [];
@@ -677,7 +680,12 @@
     const cleaned = [];
     for (const cue of rawCues) {
       if (!cue || !Number.isFinite(cue.start) || !Number.isFinite(cue.end)) continue;
-      let text = decode(String(cue.text || "")).replace(/[\r\n\t]+/g, " ").replace(/\s{2,}/g, " ").trim();
+      let text = decode(String(cue.text || ""))
+        .replace(/<[^>]+>/g, "")
+        .replace(/&nbsp;/gi, " ")
+        .replace(/[\r\n\t]+/g, " ")
+        .replace(/\s{2,}/g, " ")
+        .trim();
       if (!text) continue;
       const start = Math.max(0, Number(cue.start));
       const end = Math.max(start + 0.1, Number(cue.end));
@@ -885,7 +893,13 @@
 
   function decodeHtmlEntities(s) {
     const entityMap = { "&amp;": "&", "&lt;": "<", "&gt;": ">", "&quot;": '"', "&#39;": "'", "&apos;": "'", "&#039;": "'" };
-    return String(s || "").replace(/&(?:amp|lt|gt|quot|apos|#39|#039);/g, (m) => entityMap[m] || m);
+    return String(s || "")
+      .replace(/&(?:amp|lt|gt|quot|apos|#39|#039);/g, (m) => entityMap[m] || m)
+      .replace(/<[^>]+>/g, "")
+      .replace(/&nbsp;/gi, " ")
+      .replace(/[\r\n\t]+/g, " ")
+      .replace(/\s{2,}/g, " ")
+      .trim();
   }
 
   function parseTimedtextResponse(text) {
@@ -1467,10 +1481,15 @@
     }
 
     if (textNode) {
-      if (textNode.textContent !== text) {
-        textNode.textContent = text;
+      const cleanText = String(text || "")
+        .replace(/<[^>]+>/g, "")
+        .replace(/&nbsp;/gi, " ")
+        .replace(/\s{2,}/g, " ")
+        .trim();
+      if (textNode.textContent !== cleanText) {
+        textNode.textContent = cleanText;
       }
-      textNode.style.display = text ? "inline-block" : "none";
+      textNode.style.display = cleanText ? "inline-block" : "none";
     }
     renderFrame = requestAnimationFrame(render);
   }
