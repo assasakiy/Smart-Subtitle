@@ -166,7 +166,7 @@
       const track = chooseTrack(tracks, settings.trackId || settings.targetLanguage);
       if (!track) throw new Error("Track subtitle YouTube tidak ditemukan.");
 
-      const rawCues = await fetchCaptionSegments(track.baseUrl);
+      const rawCues = await fetchCaptionSegments(track);
       assertCurrentVideo(capturedVideoId);
       if (!rawCues.length) throw new Error("Track subtitle tidak memiliki teks.");
 
@@ -256,7 +256,7 @@
         debug("Memakai smart segmentation dari cache lokal", { count: cachedOrig.segments.length });
         smartSegments = cachedOrig.segments;
       } else {
-        const rawCues = await fetchCaptionSegments(track.baseUrl);
+      const rawCues = await fetchCaptionSegments(track);
         assertCurrentVideo(capturedVideoId);
         if (!rawCues.length) throw new Error("[parse] Timedtext tidak memiliki segmen yang dapat digunakan.");
 
@@ -634,6 +634,41 @@
     });
   }
 
+  function fetchTimedtextFromPage(url, languageCode, vssId) {
+    return new Promise((resolve) => {
+      const requestId = crypto.randomUUID();
+      const timeout = setTimeout(() => {
+        window.removeEventListener("message", receive);
+        resolve(null);
+      }, 4000);
+      function receive(event) {
+        const message = event.data;
+        if (event.source !== window || event.origin !== location.origin || message?.source !== "subtitle-sync-ai-page" || message?.type !== "TIMEDTEXT_RESULT" || message.requestId !== requestId) return;
+        clearTimeout(timeout);
+        window.removeEventListener("message", receive);
+        resolve(message);
+      }
+      window.addEventListener("message", receive);
+      window.postMessage({
+        source: "subtitle-sync-ai",
+        type: "FETCH_TIMEDTEXT",
+        requestId,
+        url,
+        languageCode,
+        vssId,
+        videoId: currentVideoId,
+      }, location.origin);
+    });
+  }
+
+  function triggerPlayerCaptions(languageCode) {
+    window.postMessage({
+      source: "subtitle-sync-ai",
+      type: "TRIGGER_PLAYER_TRACK",
+      languageCode,
+    }, location.origin);
+  }
+
   function normalizeCaptionCues(rawCues) {
     if (!Array.isArray(rawCues)) return [];
     const entityMap = { "&amp;": "&", "&lt;": "<", "&gt;": ">", "&quot;": '"', "&#39;": "'", "&apos;": "'", "&#039;": "'" };
@@ -848,41 +883,242 @@
     return tracks.find((t) => t.kind !== "asr") || tracks[0];
   }
 
-  async function fetchCaptionSegments(baseUrl) {
+  function decodeHtmlEntities(s) {
+    const entityMap = { "&amp;": "&", "&lt;": "<", "&gt;": ">", "&quot;": '"', "&#39;": "'", "&apos;": "'", "&#039;": "'" };
+    return String(s || "").replace(/&(?:amp|lt|gt|quot|apos|#39|#039);/g, (m) => entityMap[m] || m);
+  }
+
+  function parseTimedtextResponse(text) {
+    if (!text || typeof text !== "string") return [];
+    const trimmed = text.trim();
+    if (!trimmed) return [];
+
+    // 1. JSON3 format (segs, events)
+    if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
+      try {
+        const payload = JSON.parse(trimmed);
+        const events = Array.isArray(payload.events) ? payload.events : [];
+        const cues = events.map((event, index) => {
+          const start = Number(event.tStartMs) / 1000;
+          const nextStart = Number(events[index + 1]?.tStartMs) / 1000;
+          const duration = Number(event.dDurationMs) / 1000;
+          const end = Number.isFinite(duration) ? start + duration : Number.isFinite(nextStart) ? nextStart : start + 4;
+          const cueText = (event.segs || []).map((part) => part.utf8 || "").join("").replace(/\s+/g, " ").trim();
+          return { start, end, text: decodeHtmlEntities(cueText) };
+        }).filter((s) => Number.isFinite(s.start) && Number.isFinite(s.end) && s.text);
+        if (cues.length > 0) return cues;
+      } catch {}
+    }
+
+    // 2. XML formats (<transcript> atau <timedtext>)
+    if (trimmed.includes("<transcript") || trimmed.includes("<timedtext") || trimmed.startsWith("<?xml") || (trimmed.startsWith("<") && (trimmed.includes("<text") || trimmed.includes("<p")))) {
+      try {
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(trimmed, "text/xml");
+
+        // Format standar XML: <transcript><text start="1.23" dur="4.56">...</text>
+        const textNodes = doc.querySelectorAll("text");
+        if (textNodes.length > 0) {
+          const cues = [];
+          textNodes.forEach((node) => {
+            const start = parseFloat(node.getAttribute("start") || "0");
+            const dur = parseFloat(node.getAttribute("dur") || "0");
+            const cueText = decodeHtmlEntities(node.textContent || "").replace(/\s+/g, " ").trim();
+            if (cueText && !isNaN(start)) {
+              cues.push({
+                start: Number(start.toFixed(3)),
+                end: Number((start + (dur > 0 ? dur : 3)).toFixed(3)),
+                text: cueText,
+              });
+            }
+          });
+          if (cues.length > 0) return cues;
+        }
+
+        // Format 3 XML: <timedtext format="3"><body><p t="1230" d="4560">...
+        const pNodes = doc.querySelectorAll("p");
+        if (pNodes.length > 0) {
+          const cues = [];
+          pNodes.forEach((node) => {
+            const t = parseFloat(node.getAttribute("t") || "0") / 1000;
+            const d = parseFloat(node.getAttribute("d") || "0") / 1000;
+            const cueText = decodeHtmlEntities(node.textContent || "").replace(/\s+/g, " ").trim();
+            if (cueText && !isNaN(t)) {
+              cues.push({
+                start: Number(t.toFixed(3)),
+                end: Number((t + (d > 0 ? d : 3)).toFixed(3)),
+                text: cueText,
+              });
+            }
+          });
+          if (cues.length > 0) return cues;
+        }
+      } catch {}
+
+      // Regex fallback untuk XML jika parsererror
+      const cues = [];
+      const regexText = /<text\s+[^>]*start="([\d.]+)"(?:\s+[^>]*dur="([\d.]+)")?[^>]*>([\s\S]*?)<\/text>/gi;
+      let match;
+      while ((match = regexText.exec(trimmed)) !== null) {
+        const start = parseFloat(match[1]);
+        const dur = match[2] ? parseFloat(match[2]) : 3;
+        const cueText = decodeHtmlEntities(match[3]).replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim();
+        if (cueText && !isNaN(start)) {
+          cues.push({ start: Number(start.toFixed(3)), end: Number((start + dur).toFixed(3)), text: cueText });
+        }
+      }
+      if (cues.length > 0) return cues;
+
+      const regexP = /<p\s+[^>]*t="(\d+)"(?:\s+[^>]*d="(\d+)")?[^>]*>([\s\S]*?)<\/p>/gi;
+      while ((match = regexP.exec(trimmed)) !== null) {
+        const start = parseInt(match[1], 10) / 1000;
+        const dur = match[2] ? parseInt(match[2], 10) / 1000 : 3;
+        const cueText = decodeHtmlEntities(match[3]).replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim();
+        if (cueText && !isNaN(start)) {
+          cues.push({ start: Number(start.toFixed(3)), end: Number((start + dur).toFixed(3)), text: cueText });
+        }
+      }
+      if (cues.length > 0) return cues;
+    }
+
+    // 3. WebVTT format
+    if (trimmed.startsWith("WEBVTT") || trimmed.includes("-->")) {
+      const cues = [];
+      const cueRegex = /(\d{2}:)?(\d{2}):(\d{2})[.,](\d{3})\s*-->\s*(\d{2}:)?(\d{2}):(\d{2})[.,](\d{3})[^\r\n]*[\r\n]+([\s\S]*?)(?=[\r\n]{2,}|$)/g;
+      let match;
+      const toSec = (h, m, s, ms) => (parseInt(h || "0", 10) * 3600) + (parseInt(m, 10) * 60) + parseInt(s, 10) + (parseInt(ms, 10) / 1000);
+      while ((match = cueRegex.exec(trimmed)) !== null) {
+        const start = toSec(match[1]?.replace(":", ""), match[2], match[3], match[4]);
+        const end = toSec(match[5]?.replace(":", ""), match[6], match[7], match[8]);
+        const cueText = decodeHtmlEntities(match[9]).replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim();
+        if (cueText && !isNaN(start) && !isNaN(end)) {
+          cues.push({ start: Number(start.toFixed(3)), end: Number(end.toFixed(3)), text: cueText });
+        }
+      }
+      if (cues.length > 0) return cues;
+    }
+
+    return [];
+  }
+
+  async function fetchCaptionSegments(trackOrUrl) {
+    const track = typeof trackOrUrl === "string" ? { baseUrl: trackOrUrl } : (trackOrUrl || {});
+    const baseUrl = track.baseUrl;
+    if (!baseUrl) throw new Error("[fetch] Track subtitle tidak memiliki URL.");
+
     const url = new URL(baseUrl);
     const allowed = url.protocol === "https:" && (url.hostname === "www.youtube.com" || url.hostname.endsWith(".youtube.com") || url.hostname.endsWith(".googlevideo.com"));
     if (!allowed) throw new Error(`[fetch] Host timedtext ditolak: ${url.hostname}`);
-    url.searchParams.set("fmt", "json3");
-    debug("Mengambil timedtext", { host: url.hostname, language: url.searchParams.get("lang") });
-    const response = await fetch(url, { credentials: "include", cache: "no-store" });
-    if (!response.ok) {
-      const errMsg = `[fetch] Timedtext gagal: HTTP ${response.status}`;
-      chrome.runtime.sendMessage({
-        type: "LOG_ERROR",
-        log: {
-          level: "error",
-          source: "timedtext",
-          message: errMsg,
-          details: { url: url.toString(), videoId: currentVideoId, status: response.status }
+
+    const makeVariant = (fmt) => {
+      const u = new URL(baseUrl);
+      if (fmt) u.searchParams.set("fmt", fmt);
+      else u.searchParams.delete("fmt");
+      return u.toString();
+    };
+
+    const variants = [
+      { url: makeVariant("json3"), name: "json3" },
+      { url: makeVariant(""), name: "raw" },
+      { url: makeVariant("srv3"), name: "srv3" },
+      { url: makeVariant("vtt"), name: "vtt" },
+    ];
+
+    let lastDiag = null;
+
+    // Strategi 1: Permintaan native in-page via youtube-main.js (bawa session, PoToken, & cache player YouTube)
+    for (const v of variants) {
+      debug("Mencoba fetch timedtext in-page", { variant: v.name });
+      const pageResult = await fetchTimedtextFromPage(v.url, track.languageCode, track.vssId);
+      if (pageResult && pageResult.text) {
+        const cues = parseTimedtextResponse(pageResult.text);
+        if (cues.length > 0) {
+          debug("Timedtext berhasil di-parse dari in-page", { variant: v.name, count: cues.length, strategy: pageResult.strategy });
+          return cues;
         }
-      }).catch(() => {});
-      throw new Error(errMsg);
+        lastDiag = {
+          status: pageResult.status || 200,
+          contentType: pageResult.contentType || "",
+          bodyLength: pageResult.text.length,
+          bodyPreview: pageResult.text.slice(0, 200),
+          strategy: pageResult.strategy || "in-page",
+          variant: v.name,
+        };
+      }
     }
-    let payload;
-    try {
-      payload = await response.json();
-    } catch {
-      throw new Error(`[parse] Respons timedtext bukan JSON (${response.headers.get("content-type") || "content-type kosong"}).`);
+
+    // Strategi 2: Direct fetch dari content script (tanpa custom User-Agent agar tidak memicu CORS preflight)
+    for (const v of variants) {
+      try {
+        debug("Mencoba fetch timedtext langsung", { variant: v.name });
+        const response = await fetch(v.url, { credentials: "include", cache: "no-store" });
+        const contentType = response.headers.get("content-type") || "";
+        const text = await response.text();
+
+        if (response.ok && text && text.trim().length > 0) {
+          const cues = parseTimedtextResponse(text);
+          if (cues.length > 0) {
+            debug("Timedtext berhasil di-parse dari fetch langsung", { variant: v.name, count: cues.length });
+            return cues;
+          }
+        }
+        lastDiag = {
+          status: response.status,
+          contentType,
+          bodyLength: text ? text.length : 0,
+          bodyPreview: text ? text.slice(0, 200) : "",
+          strategy: "direct-fetch",
+          variant: v.name,
+        };
+      } catch (e) {
+        lastDiag = {
+          status: 0,
+          contentType: "fetch-error",
+          bodyLength: 0,
+          bodyPreview: e.message,
+          strategy: "direct-fetch",
+          variant: v.name,
+        };
+      }
     }
-    const events = Array.isArray(payload.events) ? payload.events : [];
-    return events.map((event, index) => {
-      const start = Number(event.tStartMs) / 1000;
-      const nextStart = Number(events[index + 1]?.tStartMs) / 1000;
-      const duration = Number(event.dDurationMs) / 1000;
-      const end = Number.isFinite(duration) ? start + duration : Number.isFinite(nextStart) ? nextStart : start + 4;
-      const text = (event.segs || []).map((part) => part.utf8 || "").join("").replace(/\s+/g, " ").trim();
-      return { start, end, text };
-    }).filter((segment) => Number.isFinite(segment.start) && Number.isFinite(segment.end) && segment.text);
+
+    // Strategi 3: Minta YouTube player memuat track (trigger player captions), lalu coba ambil kembali
+    if (track.languageCode) {
+      debug("Meminta YouTube player memuat track", { lang: track.languageCode });
+      triggerPlayerCaptions(track.languageCode);
+      await new Promise((resolve) => setTimeout(resolve, 800));
+
+      const retryResult = await fetchTimedtextFromPage(makeVariant("json3"), track.languageCode, track.vssId);
+      if (retryResult && retryResult.text) {
+        const cues = parseTimedtextResponse(retryResult.text);
+        if (cues.length > 0) {
+          debug("Timedtext berhasil di-parse setelah trigger player", { count: cues.length });
+          return cues;
+        }
+      }
+    }
+
+    // Catat diagnosis lengkap ke log error ekstensi
+    const diagMsg = lastDiag
+      ? `Timedtext gagal (${lastDiag.strategy}, ${lastDiag.variant}): HTTP ${lastDiag.status}, ${lastDiag.contentType}, len: ${lastDiag.bodyLength}`
+      : "Timedtext gagal dimuat dari semua strategi.";
+
+    chrome.runtime.sendMessage({
+      type: "LOG_ERROR",
+      log: {
+        level: "error",
+        source: "timedtext",
+        message: diagMsg,
+        details: {
+          videoId: currentVideoId,
+          track: { languageCode: track.languageCode, vssId: track.vssId, name: track.name },
+          lastDiag,
+          baseUrl,
+        },
+      },
+    }).catch(() => {});
+
+    throw new Error(`${diagMsg}. Format tidak dikenal atau body kosong.`);
   }
 
   function createRecorder(audioTracks, video, currentRun) {
