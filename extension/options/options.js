@@ -1,4 +1,5 @@
 const DEFAULTS = {
+  aiProvider: "openai",
   baseUrl: "",
   apiKey: "",
   transcriptionModel: "whisper-1",
@@ -41,6 +42,14 @@ const selectAllCheckbox = document.querySelector("#selectAllCheckbox");
 
 const textModelSelect = document.querySelector("#textModelSelect");
 const targetLanguageSelect = document.querySelector("#targetLanguageSelect");
+const aiProviderSelect = document.querySelector("#aiProviderSelect");
+const openAiSettings = document.querySelector("#openAiSettings");
+const qvacSettings = document.querySelector("#qvacSettings");
+const qvacStatus = document.querySelector("#qvacStatus");
+const qvacStatusBadge = document.querySelector("#qvacStatusBadge");
+const qvacProgress = document.querySelector("#qvacProgress");
+const qvacProgressBar = document.querySelector("#qvacProgressBar");
+const qvacProgressText = document.querySelector("#qvacProgressText");
 
 let initialGeneral = {};
 let initialAppearance = {};
@@ -59,6 +68,25 @@ async function init() {
   loadModelsBtn = document.querySelector("#loadModels");
   loadModelsStatus = document.querySelector("#loadModelsStatus");
   if (loadModelsBtn) loadModelsBtn.addEventListener("click", loadModels);
+  aiProviderSelect.addEventListener("change", () => {
+    renderProviderSettings();
+    checkGeneralChanged();
+  });
+  document.querySelector("#extensionIdValue").textContent = chrome.runtime.id;
+  document.querySelector("#copyExtensionIdBtn").addEventListener("click", async () => {
+    await navigator.clipboard.writeText(chrome.runtime.id);
+    qvacStatus.textContent = "Extension ID disalin.";
+  });
+  document.querySelector("#qvacCheckBtn").addEventListener("click", refreshQvacStatus);
+  document.querySelector("#qvacInstallBtn").addEventListener("click", () => runQvacAction("QVAC_INSTALL"));
+  document.querySelector("#qvacDownloadBtn").addEventListener("click", () => runQvacAction("QVAC_DOWNLOAD_MODELS"));
+  document.querySelector("#qvacStartBtn").addEventListener("click", () => runQvacAction("QVAC_START"));
+  document.querySelector("#qvacStopBtn").addEventListener("click", () => runQvacAction("QVAC_STOP"));
+  document.querySelector("#qvacDeleteModelsBtn").addEventListener("click", () => cleanupQvac(false));
+  document.querySelector("#qvacDeleteAllBtn").addEventListener("click", () => cleanupQvac(true));
+  chrome.runtime.onMessage.addListener((message) => {
+    if (message.type === "QVAC_PROGRESS") renderQvacProgress(message.payload);
+  });
   
   formGeneral.addEventListener("submit", saveGeneral);
   formGeneral.addEventListener("input", checkGeneralChanged);
@@ -239,7 +267,9 @@ async function restoreGeneral() {
     targetLanguageSelect.value = settings.targetLanguage;
   }
 
+  aiProviderSelect.value = settings.aiProvider || "openai";
   initialGeneral = {
+    aiProvider: aiProviderSelect.value,
     baseUrl: settings.baseUrl || "",
     apiKey: settings.apiKey || "",
     textModel: textModelSelect.value || "",
@@ -252,16 +282,86 @@ async function restoreGeneral() {
   if (keyInput) keyInput.value = initialGeneral.apiKey;
 
   initCustomSelectsOptions();
+  renderProviderSettings();
   checkGeneralChanged();
 }
 
 function checkGeneralChanged() {
   const current = Object.fromEntries(new FormData(formGeneral));
-  const changed = (current.baseUrl || "") !== initialGeneral.baseUrl ||
+  const changed = (aiProviderSelect.value || "openai") !== initialGeneral.aiProvider ||
+    (current.baseUrl || "") !== initialGeneral.baseUrl ||
     (current.apiKey || "") !== initialGeneral.apiKey ||
     (textModelSelect.value || "") !== initialGeneral.textModel ||
     (targetLanguageSelect.value || "") !== initialGeneral.targetLanguage;
   saveGeneralBtn.disabled = !changed;
+}
+
+function renderProviderSettings() {
+  const local = aiProviderSelect.value === "qvac";
+  openAiSettings.classList.toggle("hidden", local);
+  qvacSettings.classList.toggle("hidden", !local);
+  if (local) refreshQvacStatus();
+}
+
+async function refreshQvacStatus() {
+  qvacStatus.textContent = "Memeriksa local helper…";
+  try {
+    const result = await chrome.runtime.sendMessage({ type: "QVAC_STATUS" });
+    if (!result?.ok) throw new Error(result?.error || "QVAC helper tidak tersedia.");
+    qvacStatus.textContent = `Node ${result.nodeVersion} · SDK ${result.sdkVersion || "belum terpasang"} · ${result.running ? "2 model aktif di RAM" : result.modelsDownloaded ? "2 model tersimpan di disk" : "model belum diunduh"}`;
+    qvacStatusBadge.textContent = result.running ? "Aktif" : result.modelsDownloaded ? "Tersimpan" : result.sdkInstalled ? "SDK Siap" : "Belum siap";
+    document.querySelector("#qvacInstallBtn").disabled = result.sdkInstalled;
+    document.querySelector("#qvacDownloadBtn").disabled = !result.sdkInstalled || result.modelsDownloaded || result.running;
+    document.querySelector("#qvacStartBtn").disabled = !result.sdkInstalled || result.running;
+    document.querySelector("#qvacStopBtn").disabled = !result.running;
+    document.querySelector("#qvacDeleteModelsBtn").disabled = !result.modelsDownloaded && !result.running;
+  } catch (error) {
+    const message = String(error.message || error);
+    if (/host not found|not found/i.test(message)) {
+      qvacStatus.textContent = `Native host belum terdaftar. Jalankan updater/install.bat ${chrome.runtime.id}`;
+    } else if (/forbidden|access/i.test(message)) {
+      qvacStatus.textContent = `Extension ID belum diizinkan. Jalankan ulang updater/install.bat ${chrome.runtime.id}`;
+    } else {
+      qvacStatus.textContent = `${message} Pastikan Node.js >=22.17 tersedia.`;
+    }
+    qvacStatusBadge.textContent = "Helper tidak tersambung";
+    document.querySelector("#qvacInstallBtn").disabled = true;
+    document.querySelector("#qvacDownloadBtn").disabled = true;
+    document.querySelector("#qvacStartBtn").disabled = true;
+    document.querySelector("#qvacStopBtn").disabled = true;
+  }
+}
+
+function renderQvacProgress(payload) {
+  const percent = Math.max(0, Math.min(100, Number(payload.percentage || 0)));
+  qvacProgress.style.display = "block";
+  qvacProgressBar.style.width = `${percent}%`;
+  qvacProgressText.textContent = `${payload.model === "whisper" ? "Whisper Tiny" : "Qwen3 600M"}: ${percent.toFixed(0)}% (${(Number(payload.downloaded || 0) / 1e6).toFixed(1)} / ${(Number(payload.total || 0) / 1e6).toFixed(1)} MB)`;
+}
+
+async function runQvacAction(type) {
+  qvacStatus.textContent = "Memproses… jangan tutup halaman ini.";
+  try {
+    const result = await chrome.runtime.sendMessage({ type });
+    if (!result?.ok) throw new Error(result?.error || "Operasi QVAC gagal.");
+    qvacStatus.textContent = result.message || "Selesai.";
+    await refreshQvacStatus();
+  } catch (error) {
+    qvacStatus.textContent = error.message;
+  }
+}
+
+async function cleanupQvac(dependencies) {
+  const label = dependencies ? "model dan dependency QVAC" : "semua model QVAC";
+  if (!confirm(`Hapus ${label} dari komputer?`)) return;
+  try {
+    const result = await chrome.runtime.sendMessage({ type: "QVAC_CLEANUP", models: true, dependencies });
+    if (!result?.ok) throw new Error(result?.error || "Cleanup gagal.");
+    qvacStatus.textContent = result.message;
+    await refreshQvacStatus();
+  } catch (error) {
+    qvacStatus.textContent = error.message;
+  }
 }
 
 async function requestOrigin(baseUrl) {
@@ -306,15 +406,18 @@ async function saveGeneral(event) {
   event.preventDefault();
   const data = Object.fromEntries(new FormData(formGeneral));
   try {
-    await requestOrigin(data.baseUrl);
+    const aiProvider = aiProviderSelect.value;
+    if (aiProvider === "openai") await requestOrigin(data.baseUrl);
     await chrome.storage.local.set({
-      baseUrl: data.baseUrl.replace(/\/+$/, ""),
+      aiProvider,
+      baseUrl: (data.baseUrl || "").replace(/\/+$/, ""),
       apiKey: (data.apiKey || "").trim(),
       textModel: textModelSelect.value.trim(),
       targetLanguage: targetLanguageSelect.value,
     });
     initialGeneral = {
-      baseUrl: data.baseUrl.replace(/\/+$/, ""),
+      aiProvider,
+      baseUrl: (data.baseUrl || "").replace(/\/+$/, ""),
       apiKey: (data.apiKey || "").trim(),
       textModel: textModelSelect.value.trim(),
       targetLanguage: targetLanguageSelect.value,
@@ -674,6 +777,7 @@ function syncCustomSelectOptions(select) {
   labelSpan.textContent = selectedOpt ? selectedOpt.textContent : "";
 
   options.forEach((opt) => {
+    if (opt.hidden) return;
     const item = document.createElement("div");
     item.className = `c-select-option ${opt.value === select.value ? "selected" : ""} ${opt.disabled ? "disabled" : ""}`;
     item.textContent = opt.textContent;

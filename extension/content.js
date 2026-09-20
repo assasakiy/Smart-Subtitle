@@ -228,7 +228,7 @@
     chunkStartedAt = video.currentTime;
     pending = Promise.resolve();
     recorder = createRecorder(audioTracks, video, runId);
-    recorder.start(30000);
+    recorder.start(15000);
     return getState();
   }
 
@@ -1135,6 +1135,42 @@
     throw new Error(`${diagMsg}. Format tidak dikenal atau body kosong.`);
   }
 
+  async function mediaBlobToWav(blob) {
+    const context = new AudioContext({ sampleRate: 16000 });
+    try {
+      const decoded = await context.decodeAudioData(await blob.arrayBuffer());
+      const source = decoded.getChannelData(0);
+      const ratio = decoded.sampleRate / 16000;
+      const length = Math.max(1, Math.floor(source.length / ratio));
+      const wav = new ArrayBuffer(44 + length * 2);
+      const view = new DataView(wav);
+      const write = (offset, value) => [...value].forEach((char, index) => view.setUint8(offset + index, char.charCodeAt(0)));
+      write(0, "RIFF");
+      view.setUint32(4, 36 + length * 2, true);
+      write(8, "WAVEfmt ");
+      view.setUint32(16, 16, true);
+      view.setUint16(20, 1, true);
+      view.setUint16(22, 1, true);
+      view.setUint32(24, 16000, true);
+      view.setUint32(28, 32000, true);
+      view.setUint16(32, 2, true);
+      view.setUint16(34, 16, true);
+      write(36, "data");
+      view.setUint32(40, length * 2, true);
+      for (let i = 0; i < length; i += 1) {
+        const start = Math.floor(i * ratio);
+        const finish = Math.max(start + 1, Math.floor((i + 1) * ratio));
+        let sample = 0;
+        for (let j = start; j < finish && j < source.length; j += 1) sample += source[j];
+        sample = Math.max(-1, Math.min(1, sample / (finish - start)));
+        view.setInt16(44 + i * 2, sample < 0 ? sample * 0x8000 : sample * 0x7fff, true);
+      }
+      return wav;
+    } finally {
+      await context.close();
+    }
+  }
+
   function createRecorder(audioTracks, video, currentRun) {
     const mimeType = supportedMimeType();
     const nextRecorder = new MediaRecorder(new MediaStream(audioTracks), mimeType ? { mimeType } : undefined);
@@ -1176,10 +1212,18 @@
 
   async function processChunk(blob, offset, end, currentRun) {
     if (!blob.size || currentRun !== runId) return;
+    let audio;
+    let mimeType = blob.type || "audio/webm";
+    try {
+      audio = await mediaBlobToWav(blob);
+      mimeType = "audio/wav";
+    } catch {
+      audio = await blob.arrayBuffer();
+    }
     const response = await chrome.runtime.sendMessage({
       type: "TRANSCRIBE_CHUNK",
-      audio: await blob.arrayBuffer(),
-      mimeType: blob.type || "audio/webm",
+      audio,
+      mimeType,
       ...runSettings,
     }).catch(() => ({ ok: false, error: "Endpoint tidak dapat dihubungi." }));
 

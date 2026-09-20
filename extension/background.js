@@ -1,10 +1,16 @@
 const DEFAULTS = {
+  aiProvider: "openai",
   baseUrl: "",
   apiKey: "",
   transcriptionModel: "whisper-1",
   textModel: "gpt-4o-mini",
   targetLanguage: "id",
 };
+
+const QVAC_HOST = "com.aisubtitle.updater";
+let qvacPort;
+let qvacSequence = 0;
+const qvacRequests = new Map();
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   const tasks = {
@@ -21,6 +27,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     GET_LOGS: () => readLogs(),
     DELETE_LOG: () => deleteSingleLog(message.id),
     CLEAR_LOGS: () => clearAllLogs(),
+    QVAC_STATUS: () => qvacRequest("qvac_status"),
+    QVAC_INSTALL: () => qvacRequest("qvac_install", {}, 600000),
+    QVAC_DOWNLOAD_MODELS: () => qvacRequest("qvac_download_models", {}, 3600000),
+    QVAC_START: () => qvacRequest("qvac_start", {}, 3600000),
+    QVAC_STOP: () => qvacRequest("qvac_stop", {}, 120000),
+    QVAC_CLEANUP: () => qvacRequest("qvac_cleanup", { models: message.models, dependencies: message.dependencies }, 600000),
   };
   if (!tasks[message.type]) return;
 
@@ -29,6 +41,51 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   });
   return true;
 });
+
+function getQvacPort() {
+  if (qvacPort) return qvacPort;
+  const port = chrome.runtime.connectNative(QVAC_HOST);
+  qvacPort = port;
+  port.onMessage.addListener((message) => {
+    const request = qvacRequests.get(message.requestId);
+    if (!request) return;
+    if (message.event === "progress") {
+      chrome.runtime.sendMessage({ type: "QVAC_PROGRESS", payload: message }).catch(() => {});
+      return;
+    }
+    clearTimeout(request.timeout);
+    qvacRequests.delete(message.requestId);
+    message.success ? request.resolve({ ok: true, ...message }) : request.reject(new Error(message.error || "QVAC gagal."));
+  });
+  port.onDisconnect.addListener(() => {
+    const error = chrome.runtime.lastError?.message || "QVAC native host terputus.";
+    if (qvacPort === port) qvacPort = undefined;
+    for (const request of qvacRequests.values()) {
+      clearTimeout(request.timeout);
+      request.reject(new Error(error));
+    }
+    qvacRequests.clear();
+  });
+  return port;
+}
+
+function qvacRequest(action, payload = {}, timeoutMs = 120000) {
+  return new Promise((resolve, reject) => {
+    const requestId = `qvac_${Date.now()}_${++qvacSequence}`;
+    const timeout = setTimeout(() => {
+      qvacRequests.delete(requestId);
+      reject(new Error(`QVAC timeout saat ${action}.`));
+    }, timeoutMs);
+    qvacRequests.set(requestId, { resolve, reject, timeout });
+    try {
+      getQvacPort().postMessage({ action, requestId, ...payload });
+    } catch (error) {
+      clearTimeout(timeout);
+      qvacRequests.delete(requestId);
+      reject(error);
+    }
+  });
+}
 
 function openDb() {
   return new Promise((resolve, reject) => {
@@ -185,6 +242,15 @@ async function transcribe({ audio, mimeType, transcriptionModel, textModel, targ
     textModel,
     targetLanguage,
   };
+  if (settings.aiProvider === "qvac") {
+    const audioBase64 = arrayBufferToBase64(audio);
+    const transcription = await qvacRequest("qvac_transcribe", { audioBase64, mimeType }, 600000);
+    const sourceSegments = Array.isArray(transcription.segments) && transcription.segments.length
+      ? transcription.segments
+      : transcription.text ? [{ start: 0, end: 30, text: transcription.text }] : [];
+    const translated = await translateSegments(sourceSegments, settings);
+    return { ok: true, segments: translated, text: transcription.text || "" };
+  }
   requireSettings(settings, true);
 
   const form = new FormData();
@@ -224,17 +290,31 @@ async function enhanceCaptions({ segments, textModel, targetLanguage, jobId, bat
   }
 
   const settings = { ...await chrome.storage.local.get(DEFAULTS), textModel, targetLanguage };
-  requireSettings(settings, false);
-  if (!settings.textModel || !settings.targetLanguage) throw new Error("Pilih model terjemahan dan bahasa target.");
+  if (!settings.targetLanguage) throw new Error("Pilih bahasa target.");
 
   notifyProgress(tabId, { jobId, batchId, message: `Memproses batch ${Number(batchId) + 1}…` });
-  const output = await refineSegmentBatch(cleanSegments, settings, true, false, tabId, { jobId, batchId, previousContext });
+  const output = settings.aiProvider === "qvac"
+    ? await qvacEnhanceCaptions(cleanSegments, settings.targetLanguage, previousContext)
+    : await refineSegmentBatch(cleanSegments, settings, true, false, tabId, { jobId, batchId, previousContext });
   return { ok: true, jobId, batchId, segments: output };
 }
 
 async function translateSegments(segments, settings) {
-  if (!segments.length || !settings.targetLanguage || !settings.textModel) return segments;
-  return refineSegmentBatch(segments.map((segment, id) => ({ ...segment, id })), settings, false, false, null, {});
+  if (!segments.length || !settings.targetLanguage) return segments;
+  const indexed = segments.map((segment, id) => ({ ...segment, id }));
+  if (settings.aiProvider === "qvac") return qvacEnhanceCaptions(indexed, settings.targetLanguage, "");
+  if (!settings.textModel) return segments;
+  return refineSegmentBatch(indexed, settings, false, false, null, {});
+}
+
+async function qvacEnhanceCaptions(segments, targetLanguage, previousContext) {
+  const response = await qvacRequest("qvac_translate", {
+    cues: segments.map(({ id, text }) => [id, text]),
+    targetLanguage,
+    previousContext,
+  }, 600000);
+  const result = parseJsonContent(response.content);
+  return reconstructSegments(segments, result);
 }
 
 async function refineSegmentBatch(segments, settings, allowGrouping = true, retry = false, tabId = null, meta = {}) {
@@ -533,6 +613,15 @@ function parseSseResponse(text) {
     finishReason = choice?.finish_reason ?? finishReason;
   }
   return content ? { model, choices: [{ message: { role: "assistant", content }, finish_reason: finishReason }] } : null;
+}
+
+function arrayBufferToBase64(buffer) {
+  const bytes = new Uint8Array(buffer);
+  let binary = "";
+  for (let offset = 0; offset < bytes.length; offset += 0x8000) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000));
+  }
+  return btoa(binary);
 }
 
 function authHeaders(apiKey) {

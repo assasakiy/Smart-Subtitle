@@ -6,6 +6,7 @@ const DEFAULTS = {
   fontSize: 24,
   positionBottom: 8,
   maxWidthPercent: 90,
+  aiProvider: "openai",
 };
 
 const GLOBAL_TRANSLATE_LANGUAGES = [
@@ -40,6 +41,7 @@ let tab;
 let busy = false;
 let progressTimer;
 let savedDefaultTargetLang = "id";
+let aiProvider = "openai";
 let state = {
   phase: "idle",
   active: false,
@@ -70,6 +72,8 @@ async function init() {
   [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   const settings = await chrome.storage.local.get(DEFAULTS);
   savedDefaultTargetLang = settings.targetLanguage || "id";
+  aiProvider = settings.aiProvider || "openai";
+  updateSourceOptions();
 
   const models = settings.cachedModels.length ? settings.cachedModels : [settings.transcriptionModel, settings.textModel];
   setModels(models, settings.transcriptionModel, transcriptionModel);
@@ -106,6 +110,17 @@ function setModels(models, selected, select) {
   syncCustomSelect(select);
 }
 
+function updateSourceOptions() {
+  const audioOpt = source.querySelector('option[value="audio"]');
+  if (audioOpt) {
+    audioOpt.hidden = aiProvider !== "qvac";
+    if (aiProvider !== "qvac" && source.value === "audio") {
+      source.value = "captions";
+    }
+  }
+  syncCustomSelect(source);
+}
+
 function renderSourceFields() {
   const mode = source.value;
   if (mode === "original") {
@@ -115,8 +130,14 @@ function renderSourceFields() {
     languageLabel.textContent = "Track Subtitle YouTube";
     populateOriginalTracks();
   } else if (mode === "captions") {
-    textModelField.classList.remove("hidden");
+    textModelField.classList.toggle("hidden", aiProvider === "qvac");
     audioModeField.classList.add("hidden");
+    asrModelField.classList.add("hidden");
+    languageLabel.textContent = "Bahasa Target";
+    populateAILanguages();
+  } else if (mode === "audio") {
+    textModelField.classList.add("hidden");
+    audioModeField.classList.remove("hidden");
     asrModelField.classList.add("hidden");
     languageLabel.textContent = "Bahasa Target";
     populateAILanguages();
@@ -160,9 +181,10 @@ async function refreshState() {
   state = response;
 
   // Pulihkan pilihan sumber subtitle jika sedang aktif atau tersimpan di tab
-  if (state.source === "original" || state.source === "captions" || state.source === "audio") {
+  if (state.source === "original" || state.source === "captions" || (state.source === "audio" && aiProvider === "qvac")) {
     source.value = state.source;
   }
+  updateSourceOptions();
   renderSourceFields();
 
   // Pulihkan track / bahasa yang sedang dipakai
@@ -199,6 +221,26 @@ async function generateSubtitles() {
         type: "GENERATE",
         sourceMode: "original",
         trackId: language.value,
+        targetLanguage: language.value,
+      }) || state;
+    } finally {
+      busy = false;
+      render();
+    }
+    return;
+  }
+
+  if (mode === "audio") {
+    if (aiProvider !== "qvac") {
+      busy = false;
+      return showError("Audio lokal membutuhkan provider QVAC Lokal dari Dashboard.");
+    }
+    renderBusy("Menjalankan audio lokal…");
+    status.classList.remove("error");
+    try {
+      state = await sendToTab({
+        type: "GENERATE",
+        sourceMode: "audio",
         targetLanguage: language.value,
       }) || state;
     } finally {
@@ -446,6 +488,7 @@ function syncCustomSelect(select) {
   labelSpan.textContent = selectedOpt ? selectedOpt.textContent : "";
 
   options.forEach((opt) => {
+    if (opt.hidden) return;
     const item = document.createElement("div");
     item.className = `c-select-option ${opt.value === select.value ? "selected" : ""} ${opt.disabled ? "disabled" : ""}`;
     item.textContent = opt.textContent;

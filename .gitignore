@@ -5,8 +5,12 @@ Desktop.ini
 $RECYCLE.BIN/
 .DS_Store
 
-# Temporary files
+# Temporary and packaged files
 *.tmp
 *.log
 *.pem
 *.crx
+
+# Node/QVAC runtime data
+node_modules/
+qvac-data/

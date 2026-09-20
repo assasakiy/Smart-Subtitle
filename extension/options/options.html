@@ -441,6 +441,7 @@
     .c-select-option:hover { background: rgba(248,104,0,.15); color: var(--accent); }
     .c-select-option.selected { background: rgba(248,104,0,.22); color: var(--accent); font-weight: 700; }
     .c-select-option.disabled { opacity: .4; cursor: not-allowed; pointer-events: none; }
+    .hidden { display: none !important; }
     input:focus {
       border-color: var(--accent);
       box-shadow: 0 0 0 3px rgba(248, 104, 0, .18);
@@ -715,8 +716,18 @@
 
         <div class="card">
           <form id="formGeneral" class="form-grid">
+            <div class="field">
+              <span class="field-label">Provider AI</span>
+              <div class="select-wrap">
+                <select id="aiProviderSelect" name="aiProvider">
+                  <option value="openai">OpenAI-compatible</option>
+                  <option value="qvac">QVAC Lokal — on-device</option>
+                </select>
+              </div>
+            </div>
+            <div id="openAiSettings" class="form-grid">
             <label>Base URL
-              <input name="baseUrl" type="url" placeholder="https://api.example.com/v1" required>
+              <input name="baseUrl" type="url" placeholder="https://api.example.com/v1">
             </label>
             <label>API Key
               <input name="apiKey" type="password" autocomplete="off" placeholder="sk-...">
@@ -732,6 +743,55 @@
                 <select id="textModelSelect" name="textModel"></select>
               </div>
             </div>
+            </div>
+            <section id="qvacSettings" class="form-grid hidden" aria-live="polite">
+              <div style="padding:14px;border:1px solid var(--line);border-radius:12px;background:#0b1627;">
+                <div style="padding:10px 12px;margin-bottom:12px;border-radius:8px;background:rgba(248,104,0,.1);font-size:12px;line-height:1.5;">
+                  <strong>Extension ID:</strong> <code id="extensionIdValue" style="word-break:break-all;"></code>
+                  <button id="copyExtensionIdBtn" type="button" class="secondary" style="margin-left:8px;padding:5px 8px;font-size:11px;">Salin ID</button>
+                  <div style="margin-top:6px;color:var(--muted);">Jalankan <code>updater/install.bat ID_INI</code> lalu klik cek ulang.</div>
+                </div>
+                <div style="display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap;">
+                  <div>
+                    <strong>QVAC Lokal</strong>
+                    <div id="qvacStatus" style="margin-top:4px;color:var(--muted);font-size:12px;">Memeriksa local helper…</div>
+                  </div>
+                  <span id="qvacStatusBadge" class="badge">Belum siap</span>
+                </div>
+                <div id="qvacProgress" style="display:none;margin-top:12px;">
+                  <div style="height:8px;background:#07101d;border-radius:999px;overflow:hidden;">
+                    <div id="qvacProgressBar" style="height:100%;width:0;background:var(--accent);"></div>
+                  </div>
+                  <div id="qvacProgressText" style="margin-top:6px;color:var(--muted);font-size:11px;"></div>
+                </div>
+                <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:14px;">
+                  <button id="qvacCheckBtn" type="button" class="secondary">Cek Ulang Helper</button>
+                  <button id="qvacInstallBtn" type="button" class="secondary">Pasang QVAC SDK</button>
+                  <button id="qvacDownloadBtn" type="button" class="secondary">Unduh 2 Model Lokal</button>
+                  <button id="qvacStartBtn" type="button">Jalankan QVAC</button>
+                  <button id="qvacStopBtn" type="button" class="secondary">Hentikan</button>
+                </div>
+                <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;margin-top:14px;">
+                  <div style="padding:10px;border:1px solid var(--line);border-radius:8px;">
+                    <strong>Model 1 · Transkripsi</strong>
+                    <div style="margin-top:4px;color:var(--muted);font-size:12px;">WHISPER_TINY</div>
+                  </div>
+                  <div style="padding:10px;border:1px solid var(--line);border-radius:8px;">
+                    <strong>Model 2 · Terjemahan</strong>
+                    <div style="margin-top:4px;color:var(--muted);font-size:12px;">QWEN3_600M_INST_Q4</div>
+                  </div>
+                </div>
+                <small style="display:block;margin-top:10px;color:var(--muted);line-height:1.5;">Endpoint dan API key tidak diperlukan. Model disimpan lokal dan tidak hilang saat dihentikan.</small>
+              </div>
+              <div style="padding:14px;border:1px solid var(--danger);border-radius:12px;background:var(--danger-dim);">
+                <strong>Persiapan hapus extension</strong>
+                <p style="margin:6px 0 10px;color:var(--muted);font-size:12px;line-height:1.5;">Chrome tidak dapat menjalankan cleanup setelah extension dihapus. Jalankan cleanup dari sini terlebih dahulu.</p>
+                <div style="display:flex;flex-wrap:wrap;gap:8px;">
+                  <button id="qvacDeleteModelsBtn" type="button" class="danger">Hapus Model Lokal</button>
+                  <button id="qvacDeleteAllBtn" type="button" class="danger">Hapus Model + Dependency</button>
+                </div>
+              </div>
+            </section>
             <div class="field">
               <span class="field-label">Default Bahasa Target</span>
               <div class="select-wrap">
