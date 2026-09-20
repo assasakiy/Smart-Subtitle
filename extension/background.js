@@ -189,6 +189,8 @@ async function recordLog(log = {}) {
     explanation = "Gagal mengambil trek subtitle dari YouTube.";
   } else if (msg.includes("Network error") || msg.includes("Failed to fetch")) {
     explanation = "Gagal terhubung ke endpoint AI atau internet.";
+  } else if (String(log.source || "").toLowerCase() === "qvac") {
+    explanation = "QVAC local helper, dependency native, worker, atau model gagal. Buka detail log dan jalankan ulang pemasangan SDK bila ada modul yang hilang.";
   }
 
   const entry = {

@@ -50,6 +50,7 @@ const qvacStatusBadge = document.querySelector("#qvacStatusBadge");
 const qvacProgress = document.querySelector("#qvacProgress");
 const qvacProgressBar = document.querySelector("#qvacProgressBar");
 const qvacProgressText = document.querySelector("#qvacProgressText");
+const qvacDiagnostic = document.querySelector("#qvacDiagnostic");
 
 let initialGeneral = {};
 let initialAppearance = {};
@@ -306,6 +307,28 @@ function renderProviderSettings() {
   if (local) refreshQvacStatus();
 }
 
+function showQvacDiagnostic(error, action) {
+  const message = String(error?.message || error || "QVAC gagal.");
+  const diagnostic = {
+    action,
+    message,
+    extensionId: chrome.runtime.id,
+    platform: navigator.platform,
+    timestamp: new Date().toISOString(),
+  };
+  qvacDiagnostic.textContent = JSON.stringify(diagnostic, null, 2);
+  qvacDiagnostic.classList.remove("hidden");
+  chrome.runtime.sendMessage({
+    type: "LOG_ERROR",
+    log: {
+      level: "error",
+      source: "qvac",
+      message,
+      details: diagnostic,
+    },
+  }).catch(() => {});
+}
+
 async function refreshQvacStatus() {
   qvacStatus.textContent = "Memeriksa local helper…";
   try {
@@ -318,7 +341,10 @@ async function refreshQvacStatus() {
     document.querySelector("#qvacStartBtn").disabled = !result.sdkInstalled || result.running;
     document.querySelector("#qvacStopBtn").disabled = !result.running;
     document.querySelector("#qvacDeleteModelsBtn").disabled = !result.modelsDownloaded && !result.running;
+    qvacDiagnostic.classList.add("hidden");
+    qvacDiagnostic.textContent = "";
   } catch (error) {
+    showQvacDiagnostic(error, "qvac_status");
     const message = String(error.message || error);
     if (/host not found|not found/i.test(message)) {
       qvacStatus.textContent = `Native host belum terdaftar. Jalankan updater/install.bat ${chrome.runtime.id}`;
@@ -380,7 +406,9 @@ async function runQvacAction(type) {
     qvacProgressText.textContent = `Selesai dalam ${formatDuration((Date.now() - qvacActionStartedAt) / 1000)}.`;
     await refreshQvacStatus();
   } catch (error) {
+    showQvacDiagnostic(error, type);
     qvacStatus.textContent = String(error.message || error).replace(/^RPC_INIT_TIMEOUT:\s*/i, "Worker QVAC gagal dimulai: ");
+    loadLogsList();
   } finally {
     clearInterval(qvacActionTimer);
     qvacActionTimer = undefined;
@@ -404,7 +432,9 @@ async function cleanupQvac(dependencies) {
     qvacStatus.textContent = result.message;
     await refreshQvacStatus();
   } catch (error) {
+    showQvacDiagnostic(error, dependencies ? "qvac_cleanup_all" : "qvac_cleanup_models");
     qvacStatus.textContent = error.message;
+    loadLogsList();
   }
 }
 
