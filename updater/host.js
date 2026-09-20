@@ -2,7 +2,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -34,6 +34,15 @@ function readMessage() {
   return JSON.parse(body.toString("utf8"));
 }
 
+function formatError(error) {
+  const cause = error?.cause;
+  const detail = cause?.stderrTail || cause?.message || "";
+  const missing = detail.match(/Cannot find module '([^']+)'/)?.[1];
+  if (missing) return `Dependency ${missing} belum terpasang lengkap. Klik Pasang QVAC SDK lagi.`;
+  if (detail) return `${error.message}\n${detail.slice(-1200)}`;
+  return error?.message || String(error);
+}
+
 function sendMessage(message) {
   const payload = Buffer.from(JSON.stringify(message), "utf8");
   const header = Buffer.alloc(4);
@@ -44,6 +53,9 @@ function sendMessage(message) {
 
 async function getSdk() {
   if (!nodeVersionOk) throw new Error(`QVAC membutuhkan Node.js >=22.17. Versi saat ini ${process.versions.node}.`);
+  if (!packageReady("sdk") || !packageReady("asr-ggml") || !packageReady("llm-llamacpp")) {
+    throw new Error("Dependency QVAC belum lengkap. Klik Pasang QVAC SDK terlebih dahulu.");
+  }
   sdk ||= await import("@qvac/sdk");
   return sdk;
 }
@@ -52,11 +64,25 @@ function emitProgress(requestId, model, progress) {
   sendMessage({
     requestId,
     event: "progress",
+    stage: "models",
     model,
     percentage: Number(progress.percentage || 0),
     downloaded: Number(progress.downloaded || 0),
     total: Number(progress.total || 0),
   });
+}
+
+function emitStage(requestId, stage, message) {
+  sendMessage({ requestId, event: "progress", stage, message });
+}
+
+function packageReady(name) {
+  try {
+    const packageJson = JSON.parse(fs.readFileSync(path.join(rootDir, "node_modules", "@qvac", name, "package.json"), "utf8"));
+    return Boolean(packageJson.name);
+  } catch {
+    return false;
+  }
 }
 
 async function loadWhisper(requestId) {
@@ -89,13 +115,12 @@ async function loadTranslation(requestId) {
 }
 
 async function status() {
-  let sdkInstalled = false;
   let sdkVersion = "";
   try {
     const packageJson = JSON.parse(fs.readFileSync(path.join(rootDir, "node_modules", "@qvac", "sdk", "package.json"), "utf8"));
-    sdkInstalled = true;
     sdkVersion = packageJson.version || "";
   } catch {}
+  const sdkInstalled = packageReady("sdk") && packageReady("asr-ggml") && packageReady("llm-llamacpp");
   return {
     success: true,
     nodeVersion: process.versions.node,
@@ -110,11 +135,33 @@ async function status() {
   };
 }
 
-async function installDependencies() {
+async function installDependencies(requestId) {
   if (!nodeVersionOk) throw new Error(`Pasang Node.js >=22.17 terlebih dahulu. Versi saat ini ${process.versions.node}.`);
-  execFileSync("npm", ["install", "@qvac/sdk@^0.19.0", "--save"], { cwd: rootDir, stdio: "ignore", shell: process.platform === "win32" });
+  emitStage(requestId, "dependencies", "Mengunduh QVAC SDK dan backend Whisper/Qwen…");
+  await new Promise((resolve, reject) => {
+    const command = process.platform === "win32" ? "npm.cmd" : "npm";
+    const child = spawn(command, [
+      "install",
+      "@qvac/sdk@^0.19.1",
+      "@qvac/asr-ggml@^0.3.3",
+      "@qvac/llm-llamacpp@^0.49.2",
+      "--save",
+      "--no-audit",
+      "--no-fund",
+    ], { cwd: rootDir, stdio: ["ignore", "pipe", "pipe"], shell: false });
+    let stderr = "";
+    child.stderr.on("data", (chunk) => {
+      stderr = (stderr + chunk.toString()).slice(-4000);
+    });
+    child.on("error", reject);
+    child.on("close", (code) => code === 0 ? resolve() : reject(new Error(stderr.trim() || `npm install gagal dengan exit code ${code}.`)));
+  });
   sdk = undefined;
-  return { success: true, message: "QVAC SDK berhasil dipasang." };
+  if (!packageReady("sdk") || !packageReady("asr-ggml") || !packageReady("llm-llamacpp")) {
+    throw new Error("Instalasi QVAC belum lengkap. Coba Pasang QVAC SDK lagi.");
+  }
+  emitStage(requestId, "dependencies", "Dependency QVAC lengkap.");
+  return { success: true, message: "QVAC SDK, backend Whisper, dan backend Qwen berhasil dipasang." };
 }
 
 async function downloadModels(requestId) {
@@ -208,7 +255,7 @@ async function dispatch(message) {
   switch (message.action) {
     case "ping": return status();
     case "qvac_status": return status();
-    case "qvac_install": return installDependencies();
+    case "qvac_install": return installDependencies(message.requestId);
     case "qvac_download_models": return downloadModels(message.requestId);
     case "qvac_start": return start(message.requestId);
     case "qvac_stop": return stop();
@@ -226,19 +273,19 @@ async function main() {
     try {
       message = readMessage();
     } catch (error) {
-      sendMessage({ success: false, error: error.message });
+      sendMessage({ success: false, error: formatError(error) });
       continue;
     }
     if (!message) break;
     try {
       sendMessage({ requestId: message.requestId, ...(await dispatch(message)) });
     } catch (error) {
-      sendMessage({ requestId: message.requestId, success: false, error: error.message });
+      sendMessage({ requestId: message.requestId, success: false, error: formatError(error) });
     }
   }
 }
 
 main().catch((error) => {
-  sendMessage({ success: false, error: error.message });
+  sendMessage({ success: false, error: formatError(error) });
   process.exitCode = 1;
 });

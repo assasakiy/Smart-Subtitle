@@ -639,6 +639,10 @@
     }
 
     /* Responsive: tablet & mobile */
+    @keyframes pulse {
+      0%, 100% { opacity: .35; transform: translateX(-35%); }
+      50% { opacity: 1; transform: translateX(0); }
+    }
     @media (max-width: 1024px) {
       aside {
         position: fixed;

@@ -53,6 +53,9 @@ const qvacProgressText = document.querySelector("#qvacProgressText");
 
 let initialGeneral = {};
 let initialAppearance = {};
+let qvacActionStartedAt = 0;
+let qvacActionTimer;
+let qvacLastProgress = null;
 
 // Init
 init();
@@ -332,22 +335,63 @@ async function refreshQvacStatus() {
   }
 }
 
+function formatDuration(seconds) {
+  const value = Math.max(0, Math.round(seconds));
+  const minutes = Math.floor(value / 60);
+  const rest = value % 60;
+  return minutes ? `${minutes}m ${rest}s` : `${rest}s`;
+}
+
 function renderQvacProgress(payload) {
-  const percent = Math.max(0, Math.min(100, Number(payload.percentage || 0)));
+  qvacLastProgress = payload;
   qvacProgress.style.display = "block";
+  const elapsed = qvacActionStartedAt ? (Date.now() - qvacActionStartedAt) / 1000 : 0;
+  if (payload.stage === "dependencies") {
+    qvacProgressBar.style.width = "100%";
+    qvacProgressBar.style.animation = "pulse 1.2s ease-in-out infinite";
+    qvacProgressText.textContent = `${payload.message || "Memasang dependency…"} · ${formatDuration(elapsed)} berjalan`;
+    return;
+  }
+  const percent = Math.max(0, Math.min(100, Number(payload.percentage || 0)));
+  const downloaded = Number(payload.downloaded || 0);
+  const total = Number(payload.total || 0);
+  const speed = elapsed > 0 ? downloaded / elapsed : 0;
+  const eta = speed > 0 && total > downloaded ? (total - downloaded) / speed : 0;
+  qvacProgressBar.style.animation = "none";
   qvacProgressBar.style.width = `${percent}%`;
-  qvacProgressText.textContent = `${payload.model === "whisper" ? "Whisper Tiny" : "Qwen3 600M"}: ${percent.toFixed(0)}% (${(Number(payload.downloaded || 0) / 1e6).toFixed(1)} / ${(Number(payload.total || 0) / 1e6).toFixed(1)} MB)`;
+  const etaText = eta > 0 ? ` · sisa ~${formatDuration(eta)}` : "";
+  qvacProgressText.textContent = `${payload.model === "whisper" ? "Whisper Tiny" : "Qwen3 600M"}: ${percent.toFixed(0)}% (${(downloaded / 1e6).toFixed(1)} / ${(total / 1e6).toFixed(1)} MB) · ${formatDuration(elapsed)} berjalan${etaText}`;
 }
 
 async function runQvacAction(type) {
-  qvacStatus.textContent = "Memproses… jangan tutup halaman ini.";
+  qvacActionStartedAt = Date.now();
+  qvacLastProgress = { stage: type === "QVAC_INSTALL" ? "dependencies" : "models", message: type === "QVAC_INSTALL" ? "Memulai pemasangan dependency…" : "Menyiapkan QVAC…" };
+  renderQvacProgress(qvacLastProgress);
+  clearInterval(qvacActionTimer);
+  qvacActionTimer = setInterval(() => qvacLastProgress && renderQvacProgress(qvacLastProgress), 1000);
+  qvacStatus.textContent = "Sedang berjalan. Jangan tutup halaman atau Chrome.";
+  setQvacButtonsBusy(true);
   try {
     const result = await chrome.runtime.sendMessage({ type });
     if (!result?.ok) throw new Error(result?.error || "Operasi QVAC gagal.");
     qvacStatus.textContent = result.message || "Selesai.";
+    qvacProgressBar.style.animation = "none";
+    qvacProgressBar.style.width = "100%";
+    qvacProgressText.textContent = `Selesai dalam ${formatDuration((Date.now() - qvacActionStartedAt) / 1000)}.`;
     await refreshQvacStatus();
   } catch (error) {
-    qvacStatus.textContent = error.message;
+    qvacStatus.textContent = String(error.message || error).replace(/^RPC_INIT_TIMEOUT:\s*/i, "Worker QVAC gagal dimulai: ");
+  } finally {
+    clearInterval(qvacActionTimer);
+    qvacActionTimer = undefined;
+    setQvacButtonsBusy(false);
+  }
+}
+
+function setQvacButtonsBusy(busy) {
+  for (const id of ["qvacCheckBtn", "qvacInstallBtn", "qvacDownloadBtn", "qvacStartBtn", "qvacStopBtn", "qvacDeleteModelsBtn", "qvacDeleteAllBtn"]) {
+    const button = document.querySelector(`#${id}`);
+    if (button) button.disabled = busy;
   }
 }
 
