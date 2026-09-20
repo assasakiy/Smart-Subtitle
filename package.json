@@ -5,7 +5,7 @@
   "type": "module",
   "description": "Chrome extension with optional on-device QVAC transcription and subtitle translation.",
   "scripts": {
-    "check": "node --check updater/host.js && node --check extension/background.js && node --check extension/content.js && node --check extension/popup.js && node --check extension/options/options.js",
+    "check": "node --check updater/host.js && node --check updater/qvac-runner.js && node --check updater/qvac-worker.js && node --check extension/background.js && node --check extension/content.js && node --check extension/popup.js && node --check extension/options/options.js",
     "qvac:doctor": "npx qvac doctor"
   },
   "repository": {

@@ -2,19 +2,33 @@
 import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
-import { execFileSync, spawn } from "node:child_process";
+import { execFileSync, fork, spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(__dirname, "..");
 const dataDir = path.join(rootDir, "qvac-data");
 const modelsMarker = path.join(dataDir, "models-ready.json");
+const hostLogPath = path.join(dataDir, "native-host.log");
 const nodeVersionOk = Number(process.versions.node.split(".")[0]) >= 22;
 let sdk;
 let whisperModelId;
 let translationModelId;
+let qvacRunner;
+let runnerRunning = false;
+const runnerRequests = new Map();
 
 fs.mkdirSync(dataDir, { recursive: true });
+const logStream = fs.createWriteStream(hostLogPath, { flags: "a" });
+const writeLog = (...args) => {
+  const line = args.map((value) => typeof value === "string" ? value : JSON.stringify(value)).join(" ");
+  logStream.write(`[${new Date().toISOString()}] ${line}\n`);
+};
+console.log = writeLog;
+console.info = writeLog;
+console.debug = writeLog;
+console.warn = writeLog;
+console.error = writeLog;
 process.env.QVAC_CACHE_DIR ||= dataDir;
 process.env.QVAC_WORKER_PATH ||= path.join(__dirname, "qvac-worker.js");
 process.env.QVAC_RPC_INIT_TIMEOUT_MS ||= "60000";
@@ -47,8 +61,8 @@ function sendMessage(message) {
   const payload = Buffer.from(JSON.stringify(message), "utf8");
   const header = Buffer.alloc(4);
   header.writeUInt32LE(payload.length, 0);
-  process.stdout.write(header);
-  process.stdout.write(payload);
+  fs.writeSync(1, header);
+  fs.writeSync(1, payload);
 }
 
 async function getSdk() {
@@ -83,6 +97,46 @@ function packageReady(name) {
   } catch {
     return false;
   }
+}
+
+function getQvacRunner() {
+  if (qvacRunner?.connected) return qvacRunner;
+  const runnerLog = fs.createWriteStream(path.join(dataDir, "qvac-runner.log"), { flags: "a" });
+  qvacRunner = fork(path.join(__dirname, "qvac-runner.js"), [], {
+    cwd: rootDir,
+    stdio: ["ignore", runnerLog, runnerLog, "ipc"],
+    env: { ...process.env, QVAC_CACHE_DIR: dataDir, QVAC_WORKER_PATH: path.join(__dirname, "qvac-worker.js"), QVAC_RPC_INIT_TIMEOUT_MS: "60000" },
+  });
+  qvacRunner.on("message", (message) => {
+    if (message.event === "progress") {
+      sendMessage(message);
+      return;
+    }
+    const request = runnerRequests.get(message.requestId);
+    if (!request) return;
+    runnerRequests.delete(message.requestId);
+    if (message.success && typeof message.running === "boolean") runnerRunning = message.running;
+    message.success ? request.resolve(message) : request.reject(new Error(message.error || "QVAC runner gagal."));
+  });
+  qvacRunner.on("exit", (code, signal) => {
+    const error = new Error(`QVAC runner berhenti (code ${code}, signal ${signal || "none"}). Lihat qvac-data/qvac-runner.log.`);
+    for (const request of runnerRequests.values()) request.reject(error);
+    runnerRequests.clear();
+    runnerRunning = false;
+    qvacRunner = undefined;
+  });
+  return qvacRunner;
+}
+
+function runQvac(message) {
+  return new Promise((resolve, reject) => {
+    runnerRequests.set(message.requestId, { resolve, reject });
+    getQvacRunner().send(message, (error) => {
+      if (!error) return;
+      runnerRequests.delete(message.requestId);
+      reject(error);
+    });
+  });
 }
 
 async function loadWhisper(requestId) {
@@ -130,7 +184,7 @@ async function status() {
     whisperLoaded: Boolean(whisperModelId),
     translationLoaded: Boolean(translationModelId),
     modelsDownloaded: fs.existsSync(modelsMarker),
-    running: Boolean(whisperModelId && translationModelId),
+    running: runnerRunning || Boolean(whisperModelId && translationModelId),
     dataDir,
   };
 }
@@ -256,11 +310,15 @@ async function dispatch(message) {
     case "ping": return status();
     case "qvac_status": return status();
     case "qvac_install": return installDependencies(message.requestId);
-    case "qvac_download_models": return downloadModels(message.requestId);
-    case "qvac_start": return start(message.requestId);
-    case "qvac_stop": return stop();
-    case "qvac_transcribe": return transcribeAudio(message);
-    case "qvac_translate": return translateSubtitles(message);
+    case "qvac_download_models":
+      emitStage(message.requestId, "models", "Menghubungkan registry QVAC dan menyiapkan unduhan model…");
+      return runQvac(message);
+    case "qvac_start":
+      emitStage(message.requestId, "models", "Menjalankan worker dan memuat model ke RAM…");
+      return runQvac(message);
+    case "qvac_stop": return runQvac(message);
+    case "qvac_transcribe": return runQvac(message);
+    case "qvac_translate": return runQvac(message);
     case "qvac_cleanup": return cleanup(message);
     case "update": return update(message.downloadUrl);
     default: return { success: false, error: "Aksi tidak diizinkan." };
