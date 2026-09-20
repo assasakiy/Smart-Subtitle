@@ -16,6 +16,8 @@ let translationModelId;
 
 fs.mkdirSync(dataDir, { recursive: true });
 process.env.QVAC_CACHE_DIR ||= dataDir;
+process.env.QVAC_WORKER_PATH ||= path.join(__dirname, "qvac-worker.js");
+process.env.QVAC_RPC_INIT_TIMEOUT_MS ||= "60000";
 
 function readMessage() {
   const header = Buffer.alloc(4);
@@ -116,15 +118,17 @@ async function installDependencies() {
 }
 
 async function downloadModels(requestId) {
-  await loadWhisper(requestId);
-  await loadTranslation(requestId);
   const qvac = await getSdk();
-  await qvac.unloadModel({ modelId: whisperModelId, clearStorage: false });
-  await qvac.unloadModel({ modelId: translationModelId, clearStorage: false });
+  await qvac.downloadAsset({
+    assetSrc: qvac.WHISPER_TINY,
+    onProgress: (p) => emitProgress(requestId, "whisper", p),
+  });
+  await qvac.downloadAsset({
+    assetSrc: qvac.QWEN3_600M_INST_Q4,
+    onProgress: (p) => emitProgress(requestId, "translation", p),
+  });
   fs.writeFileSync(modelsMarker, JSON.stringify({ downloadedAt: Date.now(), whisper: "WHISPER_TINY", translation: "QWEN3_600M_INST_Q4" }));
-  whisperModelId = undefined;
-  translationModelId = undefined;
-  return { success: true, message: "Whisper Tiny dan Qwen3 600M tersimpan lokal." };
+  return { success: true, message: "Whisper Tiny dan Qwen3 600M berhasil diunduh dan tersimpan di disk." };
 }
 
 async function start(requestId) {
