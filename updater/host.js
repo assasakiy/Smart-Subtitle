@@ -15,6 +15,7 @@ let sdk;
 let whisperModelId;
 let translationModelId;
 let qvacRunner;
+let qvacRunnerLogFd;
 let runnerRunning = false;
 const runnerRequests = new Map();
 
@@ -101,10 +102,10 @@ function packageReady(name) {
 
 function getQvacRunner() {
   if (qvacRunner?.connected) return qvacRunner;
-  const runnerLog = fs.createWriteStream(path.join(dataDir, "qvac-runner.log"), { flags: "a" });
+  qvacRunnerLogFd = fs.openSync(path.join(dataDir, "qvac-runner.log"), "a");
   qvacRunner = fork(path.join(__dirname, "qvac-runner.js"), [], {
     cwd: rootDir,
-    stdio: ["ignore", runnerLog, runnerLog, "ipc"],
+    stdio: ["ignore", qvacRunnerLogFd, qvacRunnerLogFd, "ipc"],
     env: { ...process.env, QVAC_CACHE_DIR: dataDir, QVAC_WORKER_PATH: path.join(__dirname, "qvac-worker.js"), QVAC_RPC_INIT_TIMEOUT_MS: "60000" },
   });
   qvacRunner.on("message", (message) => {
@@ -124,6 +125,10 @@ function getQvacRunner() {
     runnerRequests.clear();
     runnerRunning = false;
     qvacRunner = undefined;
+    if (qvacRunnerLogFd !== undefined) {
+      try { fs.closeSync(qvacRunnerLogFd); } catch {}
+      qvacRunnerLogFd = undefined;
+    }
   });
   return qvacRunner;
 }
@@ -324,6 +329,28 @@ async function dispatch(message) {
     default: return { success: false, error: "Aksi tidak diizinkan." };
   }
 }
+
+function closeQvacRunner() {
+  if (qvacRunner) {
+    try { qvacRunner.kill(); } catch {}
+    qvacRunner = undefined;
+  }
+  if (qvacRunnerLogFd !== undefined) {
+    try { fs.closeSync(qvacRunnerLogFd); } catch {}
+    qvacRunnerLogFd = undefined;
+  }
+  runnerRunning = false;
+}
+
+process.once("exit", closeQvacRunner);
+process.once("SIGTERM", () => {
+  closeQvacRunner();
+  process.exit(0);
+});
+process.once("SIGINT", () => {
+  closeQvacRunner();
+  process.exit(0);
+});
 
 async function main() {
   while (true) {
