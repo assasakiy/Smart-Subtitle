@@ -2,12 +2,19 @@
 import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
+import os from "node:os";
 import { execFileSync, fork, spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(__dirname, "..");
-const dataDir = path.join(rootDir, "qvac-data");
+const legacyDataDir = path.join(rootDir, "qvac-data");
+const userDataRoot = process.platform === "win32"
+  ? process.env.LOCALAPPDATA || path.join(os.homedir(), "AppData", "Local")
+  : process.platform === "darwin"
+    ? path.join(os.homedir(), "Library", "Application Support")
+    : process.env.XDG_DATA_HOME || path.join(os.homedir(), ".local", "share");
+const dataDir = path.join(userDataRoot, "SmartSubtitle", "qvac");
 const modelsMarker = path.join(dataDir, "models-ready.json");
 const hostLogPath = path.join(dataDir, "native-host.log");
 const nodeVersionOk = Number(process.versions.node.split(".")[0]) >= 22;
@@ -19,6 +26,13 @@ let qvacRunnerLogFd;
 let runnerRunning = false;
 const runnerRequests = new Map();
 
+fs.mkdirSync(path.dirname(dataDir), { recursive: true });
+if (fs.existsSync(legacyDataDir) && !fs.existsSync(dataDir)) {
+  try { fs.renameSync(legacyDataDir, dataDir); }
+  catch {
+    fs.cpSync(legacyDataDir, dataDir, { recursive: true });
+  }
+}
 fs.mkdirSync(dataDir, { recursive: true });
 const logStream = fs.createWriteStream(hostLogPath, { flags: "a" });
 const writeLog = (...args) => {

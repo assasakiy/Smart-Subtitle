@@ -54,7 +54,7 @@ Instalasi:
 3. Buka Dashboard → **Koneksi & Model AI**.
 4. Pilih **QVAC Lokal — on-device**.
 5. Klik **Pasang QVAC SDK** bila dependency belum tersedia.
-6. Klik **Unduh 2 Model Lokal**. Whisper Tiny dan Qwen3 600M diunduh sekali dan disimpan di folder `qvac-data/`.
+6. Pilih lalu unduh Whisper Tiny dan/atau Qwen3 600M. Model disimpan di direktori data pengguna agar tidak hilang saat extension diperbarui: `%LOCALAPPDATA%\SmartSubtitle\qvac` (Windows), `~/Library/Application Support/SmartSubtitle/qvac` (macOS), atau `$XDG_DATA_HOME/SmartSubtitle/qvac` (Linux).
 7. Klik **Jalankan QVAC** untuk memuat model ke RAM.
 8. Buka popup pada video YouTube dan pilih **Audio Video (QVAC Lokal)** atau **Subtitle YouTube (AI Enhancement)**. Subtitle diproses on-device tanpa endpoint eksternal.
 
