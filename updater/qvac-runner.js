@@ -49,10 +49,19 @@ async function dispatch(message) {
   if (message.action === "qvac_runner_status") return { success: true, running: Boolean(whisperModelId && translationModelId), whisperLoaded: Boolean(whisperModelId), translationLoaded: Boolean(translationModelId) };
   const qvac = await getSdk();
   if (message.action === "qvac_download_models") {
-    await qvac.downloadAsset({ assetSrc: qvac.WHISPER_TINY, onProgress: (p) => progress(message.requestId, "whisper", p) });
-    await qvac.downloadAsset({ assetSrc: qvac.QWEN3_600M_INST_Q4, onProgress: (p) => progress(message.requestId, "translation", p) });
-    fs.writeFileSync(modelsMarker, JSON.stringify({ downloadedAt: Date.now() }));
-    return { success: true, message: "Dua model berhasil diunduh." };
+    const selected = Array.isArray(message.models) && message.models.length ? message.models : ["whisper", "translation"];
+    const saved = fs.existsSync(modelsMarker) ? JSON.parse(fs.readFileSync(modelsMarker, "utf8")) : {};
+    if (selected.includes("whisper")) {
+      await qvac.downloadAsset({ assetSrc: qvac.WHISPER_TINY, onProgress: (p) => progress(message.requestId, "whisper", p) });
+      saved.whisper = true;
+    }
+    if (selected.includes("translation")) {
+      await qvac.downloadAsset({ assetSrc: qvac.QWEN3_600M_INST_Q4, onProgress: (p) => progress(message.requestId, "translation", p) });
+      saved.translation = true;
+    }
+    saved.updatedAt = Date.now();
+    fs.writeFileSync(modelsMarker, JSON.stringify(saved));
+    return { success: true, message: `${selected.length} model berhasil diunduh.` };
   }
   if (message.action === "qvac_start") {
     await loadWhisper(message.requestId);

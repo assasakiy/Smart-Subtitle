@@ -180,6 +180,8 @@ async function status() {
     sdkVersion = packageJson.version || "";
   } catch {}
   const sdkInstalled = packageReady("sdk") && packageReady("asr-ggml") && packageReady("llm-llamacpp");
+  let modelState = {};
+  try { modelState = JSON.parse(fs.readFileSync(modelsMarker, "utf8")); } catch {}
   return {
     success: true,
     nodeVersion: process.versions.node,
@@ -188,7 +190,9 @@ async function status() {
     sdkVersion,
     whisperLoaded: Boolean(whisperModelId),
     translationLoaded: Boolean(translationModelId),
-    modelsDownloaded: fs.existsSync(modelsMarker),
+    modelsDownloaded: Boolean(modelState.whisper || modelState.translation),
+    whisperDownloaded: Boolean(modelState.whisper),
+    translationDownloaded: Boolean(modelState.translation),
     running: runnerRunning || Boolean(whisperModelId && translationModelId),
     dataDir,
   };

@@ -228,7 +228,7 @@
     chunkStartedAt = video.currentTime;
     pending = Promise.resolve();
     recorder = createRecorder(audioTracks, video, runId);
-    recorder.start(15000);
+    recorder.start(5000);
     return getState();
   }
 
@@ -1197,7 +1197,7 @@
       if (phase !== "error") {
         phase = segments.length ? "generated" : "idle";
         if (segments.length) await writeCache({
-          key: cacheKey(currentVideoId, runSettings.targetLanguage, runSettings.textModel),
+          key: cacheKey(currentVideoId, runSettings.targetLanguage, source === "audio" ? "qvac-audio" : runSettings.textModel),
           videoId: currentVideoId,
           videoTitle: getVideoTitle(),
           targetLanguage: runSettings.targetLanguage,
@@ -1239,6 +1239,25 @@
       : response.text ? [{ start: offset, end, text: response.text }] : [];
     segments.push(...additions);
     segments.sort((left, right) => left.start - right.start);
+    if (segments.length) {
+      await writeCache({
+        key: cacheKey(currentVideoId, runSettings.targetLanguage, "qvac-audio"),
+        videoId: currentVideoId,
+        videoTitle: getVideoTitle(),
+        targetLanguage: runSettings.targetLanguage,
+        textModel: "qvac-audio",
+        processing: "qvac-audio",
+        segments,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+      if (!active) {
+        active = true;
+        mountOverlay();
+        render();
+      }
+      progress = `${segments.length} segmen audio siap · streaming berjalan.`;
+    }
   }
 
   function activate() {

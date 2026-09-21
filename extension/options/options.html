@@ -772,19 +772,17 @@
                 <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:14px;">
                   <button id="qvacCheckBtn" type="button" class="secondary">Cek Ulang Helper</button>
                   <button id="qvacInstallBtn" type="button" class="secondary">Pasang QVAC SDK</button>
-                  <button id="qvacDownloadBtn" type="button" class="secondary">Unduh 2 Model Lokal</button>
-                  <button id="qvacStartBtn" type="button">Jalankan QVAC</button>
-                  <button id="qvacStopBtn" type="button" class="secondary">Hentikan</button>
+                  <button id="qvacDownloadBtn" type="button">Unduh Model Terpilih</button>
                 </div>
                 <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;margin-top:14px;">
-                  <div style="padding:10px;border:1px solid var(--line);border-radius:8px;">
-                    <strong>Model 1 · Transkripsi</strong>
-                    <div style="margin-top:4px;color:var(--muted);font-size:12px;">WHISPER_TINY</div>
-                  </div>
-                  <div style="padding:10px;border:1px solid var(--line);border-radius:8px;">
-                    <strong>Model 2 · Terjemahan</strong>
-                    <div style="margin-top:4px;color:var(--muted);font-size:12px;">QWEN3_600M_INST_Q4</div>
-                  </div>
+                  <label style="display:flex;align-items:flex-start;gap:10px;padding:10px;border:1px solid var(--line);border-radius:8px;cursor:pointer;">
+                    <input id="qvacWhisperModel" type="checkbox" checked style="width:auto;margin-top:3px;">
+                    <span><strong>Transkripsi</strong><span style="display:block;margin-top:4px;color:var(--muted);font-size:12px;">WHISPER_TINY · ±78 MB</span></span>
+                  </label>
+                  <label style="display:flex;align-items:flex-start;gap:10px;padding:10px;border:1px solid var(--line);border-radius:8px;cursor:pointer;">
+                    <input id="qvacTranslationModel" type="checkbox" checked style="width:auto;margin-top:3px;">
+                    <span><strong>Terjemahan</strong><span style="display:block;margin-top:4px;color:var(--muted);font-size:12px;">QWEN3_600M_INST_Q4 · ±382 MB</span></span>
+                  </label>
                 </div>
                 <small style="display:block;margin-top:10px;color:var(--muted);line-height:1.5;">Endpoint dan API key tidak diperlukan. Model disimpan lokal dan tidak hilang saat dihentikan.</small>
               </div>

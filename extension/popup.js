@@ -235,14 +235,25 @@ async function generateSubtitles() {
       busy = false;
       return showError("Audio lokal membutuhkan provider QVAC Lokal dari Dashboard.");
     }
-    renderBusy("Menjalankan audio lokal…");
+    const stopping = state.source === "audio" && state.phase === "generating";
+    renderBusy(stopping ? "Menghentikan…" : "Memulai model lokal…");
     status.classList.remove("error");
     try {
-      state = await sendToTab({
-        type: "GENERATE",
-        sourceMode: "audio",
-        targetLanguage: language.value,
-      }) || state;
+      if (stopping) {
+        state = await sendToTab({ type: "FINISH_GENERATION" }) || state;
+        await chrome.runtime.sendMessage({ type: "QVAC_STOP" }).catch(() => null);
+      } else {
+        const ready = await chrome.runtime.sendMessage({ type: "QVAC_START" });
+        if (!ready?.ok) throw new Error(ready?.error || "QVAC lokal gagal dijalankan.");
+        state = await sendToTab({
+          type: "GENERATE",
+          sourceMode: "audio",
+          targetLanguage: language.value,
+        }) || state;
+        progressTimer ||= setInterval(refreshProgress, 750);
+      }
+    } catch (error) {
+      showError(error.message);
     } finally {
       busy = false;
       render();
@@ -322,7 +333,7 @@ function render() {
 
   generate.classList.remove("loading");
 
-  if (noCaptionAvailable) {
+  if (noCaptionAvailable && mode !== "audio") {
     generate.disabled = true;
     generate.textContent = "Tidak Ada Subtitle";
     source.disabled = true;
@@ -332,7 +343,12 @@ function render() {
     return;
   }
 
-  if (isCompletedFromCache) {
+  if (mode === "audio") {
+    const streaming = state.source === "audio" && generating;
+    generate.disabled = false;
+    generate.classList.toggle("secondary", streaming);
+    generate.textContent = streaming ? "Stop Streaming" : "Mulai Streaming";
+  } else if (isCompletedFromCache) {
     generate.disabled = true;
     generate.textContent = "Sudah Tersimpan";
   } else {
@@ -357,7 +373,9 @@ function render() {
 
   // Tombol aktifkan langsung terbuka begitu batch 1 atau fallback lokal siap!
   activate.disabled = busy || !hasUsableSubtitles;
-  activate.textContent = state.active ? "Nonaktifkan subtitle" : "Aktifkan subtitle";
+  activate.textContent = mode === "audio"
+    ? state.active ? "Sembunyikan Subtitle" : "Tampilkan Subtitle"
+    : state.active ? "Nonaktifkan subtitle" : "Aktifkan subtitle";
   status.classList.toggle("error", state.phase === "error");
 
   const progressMsg = state.progress || (generating ? "Memproses…" : "");

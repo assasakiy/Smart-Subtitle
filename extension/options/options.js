@@ -83,9 +83,7 @@ async function init() {
   });
   document.querySelector("#qvacCheckBtn").addEventListener("click", refreshQvacStatus);
   document.querySelector("#qvacInstallBtn").addEventListener("click", () => runQvacAction("QVAC_INSTALL"));
-  document.querySelector("#qvacDownloadBtn").addEventListener("click", () => runQvacAction("QVAC_DOWNLOAD_MODELS"));
-  document.querySelector("#qvacStartBtn").addEventListener("click", () => runQvacAction("QVAC_START"));
-  document.querySelector("#qvacStopBtn").addEventListener("click", () => runQvacAction("QVAC_STOP"));
+  document.querySelector("#qvacDownloadBtn").addEventListener("click", downloadSelectedQvacModels);
   document.querySelector("#qvacDeleteModelsBtn").addEventListener("click", () => cleanupQvac(false));
   document.querySelector("#qvacDeleteAllBtn").addEventListener("click", () => cleanupQvac(true));
   chrome.runtime.onMessage.addListener((message) => {
@@ -334,12 +332,13 @@ async function refreshQvacStatus() {
   try {
     const result = await chrome.runtime.sendMessage({ type: "QVAC_STATUS" });
     if (!result?.ok) throw new Error(result?.error || "QVAC helper tidak tersedia.");
-    qvacStatus.textContent = `Node ${result.nodeVersion} · SDK ${result.sdkVersion || "belum terpasang"} · ${result.running ? "2 model aktif di RAM" : result.modelsDownloaded ? "2 model tersimpan di disk" : "model belum diunduh"}`;
+    const savedModels = [result.whisperDownloaded && "Whisper", result.translationDownloaded && "Qwen"].filter(Boolean).join(" + ");
+    qvacStatus.textContent = `Node ${result.nodeVersion} · SDK ${result.sdkVersion || "belum terpasang"} · ${result.running ? "model aktif di RAM" : savedModels ? `${savedModels} tersimpan di disk` : "model belum diunduh"}`;
     qvacStatusBadge.textContent = result.running ? "Aktif" : result.modelsDownloaded ? "Tersimpan" : result.sdkInstalled ? "SDK Siap" : "Belum siap";
     document.querySelector("#qvacInstallBtn").disabled = result.sdkInstalled;
-    document.querySelector("#qvacDownloadBtn").disabled = !result.sdkInstalled || result.modelsDownloaded || result.running;
-    document.querySelector("#qvacStartBtn").disabled = !result.sdkInstalled || result.running;
-    document.querySelector("#qvacStopBtn").disabled = !result.running;
+    document.querySelector("#qvacWhisperModel").checked = !result.whisperDownloaded;
+    document.querySelector("#qvacTranslationModel").checked = !result.translationDownloaded;
+    document.querySelector("#qvacDownloadBtn").disabled = !result.sdkInstalled;
     document.querySelector("#qvacDeleteModelsBtn").disabled = !result.modelsDownloaded && !result.running;
     qvacDiagnostic.classList.add("hidden");
     qvacDiagnostic.textContent = "";
@@ -356,8 +355,6 @@ async function refreshQvacStatus() {
     qvacStatusBadge.textContent = "Helper tidak tersambung";
     document.querySelector("#qvacInstallBtn").disabled = true;
     document.querySelector("#qvacDownloadBtn").disabled = true;
-    document.querySelector("#qvacStartBtn").disabled = true;
-    document.querySelector("#qvacStopBtn").disabled = true;
   }
 }
 
@@ -389,7 +386,18 @@ function renderQvacProgress(payload) {
   qvacProgressText.textContent = `${payload.model === "whisper" ? "Whisper Tiny" : "Qwen3 600M"}: ${percent.toFixed(0)}% (${(downloaded / 1e6).toFixed(1)} / ${(total / 1e6).toFixed(1)} MB) · ${formatDuration(elapsed)} berjalan${etaText}`;
 }
 
-async function runQvacAction(type) {
+async function downloadSelectedQvacModels() {
+  const models = [];
+  if (document.querySelector("#qvacWhisperModel").checked) models.push("whisper");
+  if (document.querySelector("#qvacTranslationModel").checked) models.push("translation");
+  if (!models.length) {
+    qvacStatus.textContent = "Pilih minimal satu model untuk diunduh.";
+    return;
+  }
+  await runQvacAction("QVAC_DOWNLOAD_MODELS", { models });
+}
+
+async function runQvacAction(type, payload = {}) {
   qvacActionStartedAt = Date.now();
   qvacLastProgress = { stage: type === "QVAC_INSTALL" ? "dependencies" : "models", message: type === "QVAC_INSTALL" ? "Memulai pemasangan dependency…" : "Menyiapkan QVAC…" };
   renderQvacProgress(qvacLastProgress);
@@ -398,7 +406,7 @@ async function runQvacAction(type) {
   qvacStatus.textContent = "Sedang berjalan. Jangan tutup halaman atau Chrome.";
   setQvacButtonsBusy(true);
   try {
-    const result = await chrome.runtime.sendMessage({ type });
+    const result = await chrome.runtime.sendMessage({ type, ...payload });
     if (!result?.ok) throw new Error(result?.error || "Operasi QVAC gagal.");
     qvacStatus.textContent = result.message || "Selesai.";
     qvacProgressBar.style.animation = "none";
@@ -417,7 +425,7 @@ async function runQvacAction(type) {
 }
 
 function setQvacButtonsBusy(busy) {
-  for (const id of ["qvacCheckBtn", "qvacInstallBtn", "qvacDownloadBtn", "qvacStartBtn", "qvacStopBtn", "qvacDeleteModelsBtn", "qvacDeleteAllBtn"]) {
+  for (const id of ["qvacCheckBtn", "qvacInstallBtn", "qvacDownloadBtn", "qvacDeleteModelsBtn", "qvacDeleteAllBtn"]) {
     const button = document.querySelector(`#${id}`);
     if (button) button.disabled = busy;
   }
